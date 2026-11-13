@@ -69,6 +69,17 @@ class HalStorage {
 
   class StorageLock;  // private class, used internally
 
+  // Offline Wikipedia: holds the storage mutex for code that reads the SD block
+  // device directly instead of through HalFile (src/activities/wiki/SdRawReader).
+  // Recursive with StorageLock, so it may wrap ordinary Storage calls too.
+  class RawAccessLock {
+   public:
+    RawAccessLock();
+    ~RawAccessLock();
+    RawAccessLock(const RawAccessLock&) = delete;
+    RawAccessLock& operator=(const RawAccessLock&) = delete;
+  };
+
  private:
   static HalStorage instance;
 

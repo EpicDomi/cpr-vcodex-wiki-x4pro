@@ -97,9 +97,6 @@ class ParsedText {
                    const std::function<void(std::shared_ptr<TextBlock>, uint32_t)>& processLine,
                    const GfxRenderer& renderer, int fontId);
   std::vector<uint16_t> calculateWordWidths(const GfxRenderer& renderer, int fontId);
-  std::vector<size_t> computeParagraphLineBreaks(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
-                                                 std::vector<uint16_t>& outWordWidths);
-  void consumeLaidOutWords(size_t consumed);
 
  public:
   explicit ParsedText(const bool extraParagraphSpacing, const bool forceParagraphIndents = false,
@@ -132,8 +129,4 @@ class ParsedText {
   void layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
                              const std::function<void(std::shared_ptr<TextBlock>, uint32_t)>& processLine,
                              bool includeLastLine = true);
-  void layoutAndCountLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,
-                           const std::function<void(uint16_t lineWordCount, bool hasRuby, uint32_t visibleOffset)>&
-                               processLineMetrics,
-                           bool includeLastLine = true);
 };

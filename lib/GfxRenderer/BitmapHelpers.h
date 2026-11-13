@@ -12,27 +12,6 @@ uint8_t quantizeSimple(int gray);
 uint8_t quantize1bit(int gray, int x, int y);
 int adjustPixel(int gray);
 
-// Brightens midtones and shadows for 2-bit e-ink cover BMPs so dark covers
-// retain visible detail on the reflective e-ink panel.
-constexpr uint8_t compensateCoverTone(uint8_t gray) {
-  uint32_t target = static_cast<uint32_t>(gray) * 255U;
-  uint32_t root = 0;
-  uint32_t bit = 1U << 14;
-  while (bit > target) {
-    bit >>= 2;
-  }
-  while (bit != 0) {
-    if (target >= root + bit) {
-      target -= root + bit;
-      root = (root >> 1) + bit;
-    } else {
-      root >>= 1;
-    }
-    bit >>= 2;
-  }
-  return static_cast<uint8_t>((root + gray) >> 1);
-}
-
 enum class BmpRowOrder { BottomUp, TopDown };
 
 // Populates a 1-bit BMP header in the provided memory.

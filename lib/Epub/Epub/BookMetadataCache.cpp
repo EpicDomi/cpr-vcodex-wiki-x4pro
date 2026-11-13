@@ -485,20 +485,16 @@ bool BookMetadataCache::load() {
   serialization::readString(bookFile, coreMetadata.coverItemHref);
   serialization::readString(bookFile, coreMetadata.textReferenceHref);
 
-  // Cache cumulative spine sizes and TOC indices in RAM. The progress bar (every render),
-  // percent jumps, and logical chapter span queries otherwise pay 2 seeks + a heap-allocating
-  // SpineEntry read per access. Spine entries are stored contiguously in index order immediately
-  // after the LUTs, so read them in a single sequential pass.
+  // Cache cumulative spine sizes in RAM. The progress bar (every render) and percent
+  // jumps otherwise pay 2 seeks + a heap-allocating SpineEntry read per access. Spine
+  // entries are stored contiguously in index order immediately after the LUTs, so read
+  // them in a single sequential pass.
   cumulativeSizes.clear();
   cumulativeSizes.reserve(spineCount);
-  spineTocIndices.clear();
-  spineTocIndices.reserve(spineCount);
   const uint32_t lutSize = (static_cast<uint32_t>(spineCount) + tocCount) * sizeof(uint32_t);
   bookFile.seek(lutOffset + lutSize);
   for (uint16_t i = 0; i < spineCount; i++) {
-    const auto entry = readSpineEntry(bookFile);
-    cumulativeSizes.push_back(entry.cumulativeSize);
-    spineTocIndices.push_back(entry.tocIndex);
+    cumulativeSizes.push_back(readSpineEntry(bookFile).cumulativeSize);
   }
 
   loaded = true;
@@ -511,13 +507,6 @@ uint32_t BookMetadataCache::getCumulativeSize(const int index) const {
     return 0;
   }
   return cumulativeSizes[index];
-}
-
-int16_t BookMetadataCache::getSpineTocIndex(const int index) const {
-  if (index < 0 || index >= static_cast<int>(spineTocIndices.size())) {
-    return -1;
-  }
-  return spineTocIndices[index];
 }
 
 BookMetadataCache::SpineEntry BookMetadataCache::getSpineEntry(const int index) {

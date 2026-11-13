@@ -230,9 +230,6 @@ void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const in
   const int drawX = xPos + xOffset;
   const int drawY = yPos + yOffset;
   const uint16_t totalHeight = getHeight();
-  if (!renderer.glyphIntersectsStrip(drawX, drawY, drawX + width, drawY + totalHeight)) {
-    return;
-  }
 
   int16_t columnStarts[MAX_TABLE_CELLS_PER_ROW + 1] = {};
   for (uint8_t i = 0; i < columnCount; i++) {
@@ -249,19 +246,15 @@ void PageTableFragment::render(GfxRenderer& renderer, const int fontId, const in
   int currentY = 0;
   for (size_t rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
     const auto& row = rows[rowIndex];
-    const int rowTopY = drawY + currentY;
-    const int rowBottomY = rowTopY + row.height;
 
-    if (renderer.glyphIntersectsStrip(drawX, rowTopY, drawX + width, rowBottomY)) {
-      for (size_t colIndex = 0; colIndex < row.cells.size() && colIndex < columnCount; colIndex++) {
-        const auto& cell = row.cells[colIndex];
-        const int cellTextX = drawX + columnStarts[colIndex] + cellPadding;
-        const int cellTextY = rowTopY + cellPadding;
+    for (size_t colIndex = 0; colIndex < row.cells.size() && colIndex < columnCount; colIndex++) {
+      const auto& cell = row.cells[colIndex];
+      const int cellTextX = drawX + columnStarts[colIndex] + cellPadding;
+      const int cellTextY = drawY + currentY + cellPadding;
 
-        for (size_t lineIndex = 0; lineIndex < cell.lines.size(); lineIndex++) {
-          cell.lines[lineIndex]->render(renderer, fontId, cellTextX,
-                                        cellTextY + static_cast<int>(lineIndex) * lineHeight, bionicReadingMode);
-        }
+      for (size_t lineIndex = 0; lineIndex < cell.lines.size(); lineIndex++) {
+        cell.lines[lineIndex]->render(renderer, fontId, cellTextX, cellTextY + static_cast<int>(lineIndex) * lineHeight,
+                                      bionicReadingMode);
       }
     }
 

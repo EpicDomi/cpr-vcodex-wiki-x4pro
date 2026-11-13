@@ -10,22 +10,6 @@ inline const uint8_t bayer4x4[4][4] = {
     {15, 7, 13, 5},
 };
 
-// Compensate 8-bit image luminance for the non-linear reflectance of 4-level
-// e-ink grayscale (where physical levels 1 and 2 are much darker than linear
-// 1/3 and 2/3 steps). Uses a gamma ~0.5 curve: out = floor(sqrt(gray * 255)).
-constexpr uint8_t compensateEinkImageTone(uint8_t gray) {
-  if (gray == 0) return 0;
-  if (gray == 255) return 255;
-  uint32_t product = static_cast<uint32_t>(gray) * 255u;
-  uint32_t x = (static_cast<uint32_t>(gray) + 255u) >> 1;
-  x = (x + product / x) >> 1;
-  x = (x + product / x) >> 1;
-  x = (x + product / x) >> 1;
-  x = (x + product / x) >> 1;
-  if (x * x > product) --x;
-  return static_cast<uint8_t>(x > 255u ? 255u : x);
-}
-
 // Quantize to the panel's four physical gray levels while distributing the
 // fractional level over a 4x4 Bayer cell. This preserves the average luminance
 // across the full 0..255 range instead of crushing values around the fixed

@@ -43,16 +43,3 @@ TEST(ImageDitherRegression, AverageOutputIsMonotonicAcrossTheInputRange) {
     previous = current;
   }
 }
-
-TEST(ImageDitherRegression, ToneCompensationBrightensMidtonesWhileKeepingEndpoints) {
-  EXPECT_EQ(compensateEinkImageTone(0), 0);
-  EXPECT_EQ(compensateEinkImageTone(255), 255);
-  EXPECT_GT(compensateEinkImageTone(64), 64);
-  EXPECT_GT(compensateEinkImageTone(128), 128);
-  int previous = -1;
-  for (int gray = 0; gray <= 255; ++gray) {
-    const int current = compensateEinkImageTone(static_cast<uint8_t>(gray));
-    EXPECT_GE(current, previous) << "gray=" << gray;
-    previous = current;
-  }
-}

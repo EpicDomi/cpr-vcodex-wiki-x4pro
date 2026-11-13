@@ -1,0 +1,47 @@
+diff --git a/src/HTTPClient.h b/src/HTTPClient.h
+index 264fca6..c53fe39 100644
+--- a/src/HTTPClient.h
++++ b/src/HTTPClient.h
+@@ -47,12 +47,13 @@ public:
+   HTTPClient() {}
+   ~HTTPClient() {}
+ 
+-  void begin(NetworkClient &client, const char *url) {
++  bool begin(NetworkClient &client, const char *url) {
+     (void)client;
+     url_ = url ? url : "";
+     responseBody_.s.clear();
+     responseStream_.reset();
+     statusCode_ = 0;
++    return true;
+   }
+   void setFollowRedirects(int mode) { (void)mode; }
+   void setReuse(bool reuse) { (void)reuse; }
+diff --git a/src/HalDisplay.h b/src/HalDisplay.h
+index 0e41f0f..3b41a3e 100644
+--- a/src/HalDisplay.h
++++ b/src/HalDisplay.h
+@@ -46,6 +46,11 @@ public:
+   void waitRefreshComplete();
+   bool supportsAsyncRefresh() const;
+   void displayWindow(int x, int y, int w, int h);
++  // Windowed refresh with the firmware HAL signature; the simulator repaints the whole frame.
++  void displayWindow(uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool turnOffScreen) {
++    (void)turnOffScreen;
++    displayWindow(static_cast<int>(x), static_cast<int>(y), static_cast<int>(w), static_cast<int>(h));
++  }
+   void refreshDisplay(RefreshMode mode = RefreshMode::FAST_REFRESH,
+                       bool turnOffScreen = false);
+   void setBusyWaitSliceHook(bool (*)(int8_t, uint8_t)) {}
+diff --git a/src/HalGPIO.h b/src/HalGPIO.h
+index d25d849..3f5a104 100644
+--- a/src/HalGPIO.h
++++ b/src/HalGPIO.h
+@@ -67,6 +67,7 @@ public:
+   bool wasReleased(uint8_t buttonIndex) const;
+   bool wasAnyReleased() const;
+   bool isDebouncePending() const { return false; }
++  bool rawInputActive() const { return false; }
+   unsigned long getHeldTime() const;
+   unsigned long getPowerButtonHeldTime() const;
+   bool hasTouch() const;

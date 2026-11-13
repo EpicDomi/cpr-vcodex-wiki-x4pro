@@ -188,9 +188,6 @@ void EpubReaderMenuActivity::buildScreen(UiScreen& screen) {
   if (totalPages > 0) {
     progressLine = std::string(tr(STR_CHAPTER_PREFIX)) + std::to_string(currentPage) + "/" +
                    std::to_string(totalPages) + std::string(tr(STR_PAGES_SEPARATOR));
-  } else if (totalPages < 0 && currentPage > 0) {
-    progressLine = std::string(tr(STR_CHAPTER_PREFIX)) + std::to_string(currentPage) + " / ??" +
-                   std::string(tr(STR_PAGES_SEPARATOR));
   }
   progressLine += std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
   const fui::Rect band = screen.takeTop(static_cast<int16_t>(metrics.tabBarHeight));

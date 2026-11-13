@@ -69,11 +69,6 @@ class ChapterHtmlSlimParser {
   bool collectingRubyText = false;
   std::string rubyTextBuffer;
   std::unique_ptr<Page> currentPage = nullptr;
-  bool hasCurrentPage = false;
-  bool currentPageHasElements = false;
-  bool countOnly = false;
-  void* streamExpatBuf_ = nullptr;
-  size_t streamPendingLen_ = 0;
   int16_t currentPageNextY = 0;
   int fontId;
   float lineCompression;
@@ -194,8 +189,6 @@ class ChapterHtmlSlimParser {
   static void applyDirectionToEntry(StyleStackEntry& entry, const CssStyle& css);
   static void applyVerticalAlignToEntry(StyleStackEntry& entry, const CssStyle& css);
   bool shouldAbortForLowMemory(const char* stage);
-  bool initParserState(size_t totalSizeHint);
-  bool flushStreamBuffer(bool done);
   bool startNewPage(const char* reason);
   void collectReferencedAnchors();
   void collectReferencedAnchor(const char* href);
@@ -258,23 +251,15 @@ class ChapterHtmlSlimParser {
         tocAnchors(std::move(tocAnchors)) {}
 
   ~ChapterHtmlSlimParser();
-  void setCountOnly(bool enable) { countOnly = enable; }
-  bool isCountOnly() const { return countOnly; }
-  int getCompletedPageCount() const { return completedPageCount; }
   bool parseAndBuildPages();
   enum class ParseStatus { More, Done, Error };
   bool beginParse();
   ParseStatus parseStep();
   bool finishParse();
-  bool beginStreamParse(size_t totalSizeHint = 0);
-  bool feedStreamChunk(const uint8_t* data, size_t len);
-  bool finishStreamParse();
-  bool parseAndCountPagesFromStream(const std::string& itemHref, size_t totalSizeHint = 0);
   void abortParse();
   size_t parseBytesConsumed() { return parseFile_ ? parseFile_.position() : 0; }
   size_t parseTotalBytes() { return parseFile_ ? parseFile_.size() : 0; }
   void addLineToPage(std::shared_ptr<TextBlock> line, uint32_t visibleOffset);
-  void addLineMetricsToPage(uint16_t wordCount, bool hasRuby, uint32_t visibleOffset);
   const std::deque<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
   bool wasLowMemoryFallbackTriggered() const { return lowMemoryImageFallback; }
   bool wasLowMemoryAbortTriggered() const { return lowMemoryAbort; }

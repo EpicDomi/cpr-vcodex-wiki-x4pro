@@ -74,7 +74,7 @@ bool WikiDecompressor::beginCluster(uint32_t chunksSector, uint64_t articleOffse
      }
 
      // Read 4-byte length header
-     uint8_t lenHeader[4];
+     uint8_t lenHeader[4] = {};
      uint32_t lenRemaining = 4;
      while (lenRemaining > 0) {
          size_t readCount = read(reinterpret_cast<char*>(lenHeader + 4 - lenRemaining), lenRemaining);

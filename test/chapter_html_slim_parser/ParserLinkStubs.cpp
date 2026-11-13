@@ -28,19 +28,12 @@ bool computeVisualWordOrder(const std::vector<std::string>& words, bool, std::ve
 }  // namespace BidiUtils
 
 // Fork TextBlock: flatten-on-construct arena; the parser test only needs a
-// constructible object, so leave the arena empty and keep word count, ruby presence, and link spans.
-TextBlock::TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>&,
+// constructible object, so leave the arena empty and keep the link spans.
+TextBlock::TextBlock(const std::vector<std::string>&, const std::vector<int16_t>&,
                      const std::vector<EpdFontFamily::Style>&, const std::vector<uint8_t>&,
                      const std::vector<uint16_t>&, const std::vector<uint8_t>&, const BlockStyle& blockStyle,
-                     const std::vector<std::string>& rubyTexts, std::vector<LinkSpan> linkSpans)
-    : blockStyle(blockStyle), numWords(static_cast<uint16_t>(words.size())), linkSpans(std::move(linkSpans)) {
-  for (const auto& rt : rubyTexts) {
-    if (!rt.empty()) {
-      rubyPresent = true;
-      break;
-    }
-  }
-}
+                     const std::vector<std::string>&, std::vector<LinkSpan> linkSpans)
+    : blockStyle(blockStyle), linkSpans(std::move(linkSpans)) {}
 
 ImageBlock::ImageBlock(const std::string& imagePath, const std::string& srcPath, int16_t width, int16_t height)
     : imagePath(imagePath), srcPath(srcPath), width(width), height(height) {}

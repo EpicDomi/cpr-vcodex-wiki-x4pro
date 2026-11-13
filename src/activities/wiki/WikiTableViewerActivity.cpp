@@ -1738,7 +1738,45 @@ void WikiTableViewerActivity::updateScrollForFocusedCell() {
 void WikiTableViewerActivity::loop() {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasBackGesture()) { finish(); return; }
 
-    if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
+    // Touch (Xteink X4 Pro has no Left/Right/Confirm keys): swipes move the focused cell in the
+    // direction the content is dragged; taps near a screen edge step that way; a tap in the
+    // middle activates the focused cell's link; a tap on the header closes the viewer.
+    bool touchUp = false;
+    bool touchDown = false;
+    bool touchLeft = false;
+    bool touchRight = false;
+    bool touchConfirm = false;
+    {
+        int tapX = 0;
+        int tapY = 0;
+        if (mappedInput.wasScreenTapped(tapX, tapY)) {
+            const auto& touchMetrics = UITheme::getInstance().getMetrics();
+            if (tapY < touchMetrics.topPadding + touchMetrics.headerHeight) { finish(); return; }
+            const int screenW = renderer.getScreenWidth();
+            const int screenH = renderer.getScreenHeight();
+            if (tapX < screenW / 4) {
+                touchLeft = true;
+            } else if (tapX >= screenW - screenW / 4) {
+                touchRight = true;
+            } else if (tapY < screenH / 3) {
+                touchUp = true;
+            } else if (tapY >= screenH - screenH / 3) {
+                touchDown = true;
+            } else {
+                touchConfirm = true;
+            }
+        } else {
+            switch (mappedInput.wasSwipe()) {
+                case MappedInputManager::SwipeDir::Up: touchDown = true; break;
+                case MappedInputManager::SwipeDir::Down: touchUp = true; break;
+                case MappedInputManager::SwipeDir::Left: touchRight = true; break;
+                case MappedInputManager::SwipeDir::Right: touchLeft = true; break;
+                default: break;
+            }
+        }
+    }
+
+    if (touchConfirm || mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
         if (focusedRow_ >= 0 && focusedRow_ < static_cast<int>(rows_.size()) &&
             focusedCol_ >= 0 && focusedCol_ < static_cast<int>(rows_[focusedRow_].size())) {
             const std::string& target = rows_[focusedRow_][focusedCol_].linkTarget;
@@ -1757,7 +1795,7 @@ void WikiTableViewerActivity::loop() {
 
     bool moved = false;
     bool sectorScrolled = false;
-    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+    if (touchDown || mappedInput.wasPressed(MappedInputManager::Button::Down)) {
         bool scrolledInsideCell = false;
         if (focusedRow_ >= 0 && focusedRow_ < static_cast<int>(cellLayouts_.size()) &&
             focusedCol_ >= 0 && focusedCol_ < static_cast<int>(cellLayouts_[focusedRow_].size())) {
@@ -1794,7 +1832,7 @@ void WikiTableViewerActivity::loop() {
             }
         }
     }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+    if (touchUp || mappedInput.wasPressed(MappedInputManager::Button::Up)) {
         bool scrolledInsideCell = false;
         if (focusedRow_ >= 0 && focusedRow_ < static_cast<int>(cellLayouts_.size()) &&
             focusedCol_ >= 0 && focusedCol_ < static_cast<int>(cellLayouts_[focusedRow_].size())) {
@@ -1831,7 +1869,7 @@ void WikiTableViewerActivity::loop() {
             }
         }
     }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
+    if (touchLeft || mappedInput.wasPressed(MappedInputManager::Button::Left)) {
         int prevCol = focusedCol_ - 1;
         while (prevCol > 0 && focusedRow_ >= 0 && focusedRow_ < static_cast<int>(cellLayouts_.size()) &&
                prevCol < static_cast<int>(cellLayouts_[focusedRow_].size()) &&
@@ -1847,7 +1885,7 @@ void WikiTableViewerActivity::loop() {
             sectorScrolled = true;
         }
     }
-    if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
+    if (touchRight || mappedInput.wasPressed(MappedInputManager::Button::Right)) {
         int nextCol = focusedCol_ + 1;
         while (focusedRow_ >= 0 && focusedRow_ < static_cast<int>(cellLayouts_.size()) &&
                nextCol < static_cast<int>(cellLayouts_[focusedRow_].size()) &&

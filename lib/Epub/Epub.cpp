@@ -7,22 +7,13 @@
 #include <Memory.h>
 #include <MemoryBudget.h>
 #include <PngToBmpConverter.h>
-#include <Serialization.h>
 #include <Utf8.h>
 #include <ZipFile.h>
-
-#include <algorithm>
 
 #include "Epub/parsers/ContainerParser.h"
 #include "Epub/parsers/ContentOpfParser.h"
 #include "Epub/parsers/TocNavParser.h"
 #include "Epub/parsers/TocNcxParser.h"
-
-namespace {
-constexpr uint32_t PAGE_COUNT_CACHE_MAGIC = 0x50434E54;  // 'PCNT'
-constexpr uint8_t PAGE_COUNT_CACHE_VERSION = 1;
-constexpr char pageCountsBinFile[] = "/page_counts.bin";
-}  // namespace
 
 bool Epub::findContentOpfFile(std::string* contentOpfFile) const {
   const auto containerPath = "META-INF/container.xml";
@@ -473,7 +464,6 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
         if (cssCacheChanged) {
           // The CSS cache changed, so section caches must use the same rule set.
           Storage.removeDir((cachePath + "/sections").c_str());
-          invalidatePageCountCache();
         }
       }
     }
@@ -577,7 +567,6 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
     bookMetadataCache.reset();
     if (parseCssFiles(cssParser->inspectCache()) != CssParser::ParseResult::Error) {
       Storage.removeDir((cachePath + "/sections").c_str());
-      invalidatePageCountCache();
     }
   }
 
@@ -593,10 +582,6 @@ bool Epub::load(const bool buildIfMissing, const bool skipLoadingCss) {
 }
 
 bool Epub::clearCache() const {
-  spinePageCounts_.clear();
-  pageCountsLoaded_ = false;
-  pageCountsDirty_ = false;
-
   if (!Storage.exists(cachePath.c_str())) {
     LOG_DBG("EPB", "Cache does not exist, no action needed");
     return true;
@@ -963,15 +948,6 @@ size_t Epub::getCumulativeSpineItemSize(const int spineIndex) const {
   return bookMetadataCache->getCumulativeSize(spineIndex);
 }
 
-size_t Epub::getSpineItemSize(const int spineIndex) const {
-  if (spineIndex < 0 || spineIndex >= getSpineItemsCount()) {
-    return 0;
-  }
-  const size_t cumSize = getCumulativeSpineItemSize(spineIndex);
-  const size_t prevCumSize = (spineIndex > 0) ? getCumulativeSpineItemSize(spineIndex - 1) : 0;
-  return cumSize >= prevCumSize ? (cumSize - prevCumSize) : 0;
-}
-
 BookMetadataCache::SpineEntry Epub::getSpineItem(const int spineIndex) const {
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
     LOG_ERR("EBP", "getSpineItem called but cache not loaded");
@@ -1029,178 +1005,7 @@ int Epub::getSpineIndexForTocIndex(const int tocIndex) const {
   return spineIndex;
 }
 
-int Epub::getTocIndexForSpineIndex(const int spineIndex) const {
-  if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
-    return -1;
-  }
-  return bookMetadataCache->getSpineTocIndex(spineIndex);
-}
-
-bool Epub::getLogicalChapterSpan(const int spineIndex, int& outStartSpine, int& outEndSpine) const {
-  const int spineCount = getSpineItemsCount();
-  if (spineCount <= 0 || spineIndex < 0 || spineIndex >= spineCount) {
-    outStartSpine = 0;
-    outEndSpine = 0;
-    return false;
-  }
-
-  const int tocIndex = getTocIndexForSpineIndex(spineIndex);
-  if (tocIndex < 0) {
-    // Unindexed frontmatter spine (tocIndex == -1): keep as its own 1-spine chapter.
-    outStartSpine = spineIndex;
-    outEndSpine = spineIndex;
-    return true;
-  }
-
-  int start = spineIndex;
-  while (start > 0 && getTocIndexForSpineIndex(start - 1) == tocIndex) {
-    --start;
-  }
-
-  int end = spineIndex;
-  while (end + 1 < spineCount && getTocIndexForSpineIndex(end + 1) == tocIndex) {
-    ++end;
-  }
-
-  outStartSpine = start;
-  outEndSpine = end;
-  return true;
-}
-
-void Epub::ensurePageCountCacheLoaded(const ReaderRenderSpec& spec) const {
-  const int spineCount = getSpineItemsCount();
-  if (spineCount <= 0) {
-    spinePageCounts_.clear();
-    pageCountsLoaded_ = false;
-    pageCountsDirty_ = false;
-    return;
-  }
-
-  if (pageCountsLoaded_ && pageCountSpec_ == spec && spinePageCounts_.size() == static_cast<size_t>(spineCount)) {
-    return;
-  }
-
-  spinePageCounts_.assign(static_cast<size_t>(spineCount), kUnknownSpinePageCount);
-  pageCountSpec_ = spec;
-  pageCountsLoaded_ = true;
-  pageCountsDirty_ = false;
-
-  const std::string path = cachePath + pageCountsBinFile;
-  HalFile f;
-  if (!Storage.openFileForRead("EBP", path, f)) {
-    return;
-  }
-
-  uint32_t magic = 0;
-  uint8_t cacheVer = 0;
-  uint8_t sectionVer = 0;
-  uint16_t fileSpineCount = 0;
-  ReaderRenderSpec fileSpec{};
-  serialization::readPod(f, magic);
-  serialization::readPod(f, cacheVer);
-  serialization::readPod(f, sectionVer);
-  serialization::readPod(f, fileSpineCount);
-  serialization::readPod(f, fileSpec.fontId);
-  serialization::readPod(f, fileSpec.lineCompression);
-  serialization::readPod(f, fileSpec.extraParagraphSpacing);
-  serialization::readPod(f, fileSpec.forceParagraphIndents);
-  serialization::readPod(f, fileSpec.paragraphAlignment);
-  serialization::readPod(f, fileSpec.viewportWidth);
-  serialization::readPod(f, fileSpec.viewportHeight);
-  serialization::readPod(f, fileSpec.hyphenationEnabled);
-  serialization::readPod(f, fileSpec.embeddedStyle);
-  serialization::readPod(f, fileSpec.imageRendering);
-  serialization::readPod(f, fileSpec.focusReadingEnabled);
-
-  const uint32_t expectedArrayBytes = static_cast<uint32_t>(spineCount) * sizeof(uint16_t);
-  if (magic != PAGE_COUNT_CACHE_MAGIC || cacheVer != PAGE_COUNT_CACHE_VERSION || sectionVer != kSectionFileVersion ||
-      fileSpineCount != static_cast<uint16_t>(spineCount) || fileSpec != spec ||
-      f.available() < static_cast<int>(expectedArrayBytes)) {
-    f.close();
-    Storage.remove(path.c_str());
-    return;
-  }
-
-  f.read(reinterpret_cast<uint8_t*>(spinePageCounts_.data()), expectedArrayBytes);
-  f.close();
-}
-
-std::optional<uint16_t> Epub::getCachedSpinePageCount(const ReaderRenderSpec& spec, const int spineIndex) const {
-  ensurePageCountCacheLoaded(spec);
-  if (spineIndex < 0 || spineIndex >= static_cast<int>(spinePageCounts_.size())) {
-    return std::nullopt;
-  }
-  const uint16_t count = spinePageCounts_[spineIndex];
-  return count == kUnknownSpinePageCount ? std::nullopt : std::optional<uint16_t>(count);
-}
-
-void Epub::setCachedSpinePageCount(const ReaderRenderSpec& spec, const int spineIndex, const uint16_t pageCount,
-                                   const bool flushToDisk) const {
-  ensurePageCountCacheLoaded(spec);
-  if (spineIndex < 0 || spineIndex >= static_cast<int>(spinePageCounts_.size()) ||
-      pageCount == kUnknownSpinePageCount) {
-    return;
-  }
-  if (spinePageCounts_[spineIndex] != pageCount) {
-    spinePageCounts_[spineIndex] = pageCount;
-    pageCountsDirty_ = true;
-  }
-  if (flushToDisk && pageCountsDirty_) {
-    savePageCountCache(spec);
-  }
-}
-
-bool Epub::savePageCountCache(const ReaderRenderSpec& spec) const {
-  ensurePageCountCacheLoaded(spec);
-  if (!pageCountsDirty_ || spinePageCounts_.empty()) {
-    return true;
-  }
-
-  setupCacheDir();
-  const std::string path = cachePath + pageCountsBinFile;
-  HalFile f;
-  if (!Storage.openFileForWrite("EBP", path, f)) {
-    return false;
-  }
-
-  const uint16_t spineCount = static_cast<uint16_t>(spinePageCounts_.size());
-  serialization::writePod(f, PAGE_COUNT_CACHE_MAGIC);
-  serialization::writePod(f, PAGE_COUNT_CACHE_VERSION);
-  serialization::writePod(f, kSectionFileVersion);
-  serialization::writePod(f, spineCount);
-  serialization::writePod(f, spec.fontId);
-  serialization::writePod(f, spec.lineCompression);
-  serialization::writePod(f, spec.extraParagraphSpacing);
-  serialization::writePod(f, spec.forceParagraphIndents);
-  serialization::writePod(f, spec.paragraphAlignment);
-  serialization::writePod(f, spec.viewportWidth);
-  serialization::writePod(f, spec.viewportHeight);
-  serialization::writePod(f, spec.hyphenationEnabled);
-  serialization::writePod(f, spec.embeddedStyle);
-  serialization::writePod(f, spec.imageRendering);
-  serialization::writePod(f, spec.focusReadingEnabled);
-
-  const size_t arrayBytes = spinePageCounts_.size() * sizeof(uint16_t);
-  const size_t written = f.write(reinterpret_cast<const uint8_t*>(spinePageCounts_.data()), arrayBytes);
-  f.flush();
-  f.close();
-  if (written != arrayBytes) {
-    Storage.remove(path.c_str());
-    return false;
-  }
-  pageCountsDirty_ = false;
-  return true;
-}
-
-void Epub::invalidatePageCountCache() const {
-  spinePageCounts_.clear();
-  pageCountsLoaded_ = false;
-  pageCountsDirty_ = false;
-  const std::string path = cachePath + pageCountsBinFile;
-  if (Storage.exists(path.c_str())) {
-    Storage.remove(path.c_str());
-  }
-}
+int Epub::getTocIndexForSpineIndex(const int spineIndex) const { return getSpineItem(spineIndex).tocIndex; }
 
 size_t Epub::getBookSize() const {
   if (!bookMetadataCache || !bookMetadataCache->isLoaded() || bookMetadataCache->getSpineCount() == 0) {
@@ -1239,50 +1044,13 @@ int Epub::getSpineIndexForTextReference() const {
 
 // Calculate progress in book (returns 0.0-1.0)
 float Epub::calculateProgress(const int currentSpineIndex, const float currentSpineRead) const {
-  return calculateSpanProgress(currentSpineIndex, currentSpineIndex, currentSpineRead);
-}
-
-float Epub::calculateSpanProgress(const int startSpine, const int endSpine, const float spanRead) const {
-  const int spineCount = getSpineItemsCount();
-  if (spineCount <= 0) {
-    return 0.0f;
-  }
-  const int clampedStart = std::clamp(startSpine, 0, spineCount - 1);
-  const int clampedEnd = std::clamp(std::max(clampedStart, endSpine), 0, spineCount - 1);
-  const float clampedRead = std::clamp(spanRead, 0.0f, 1.0f);
-
-  if (pageCountsLoaded_ && spinePageCounts_.size() == static_cast<size_t>(spineCount)) {
-    bool allKnown = true;
-    uint32_t totalBookPages = 0;
-    uint32_t pagesBefore = 0;
-    uint32_t pagesInSpan = 0;
-    for (int i = 0; i < spineCount; ++i) {
-      const uint16_t cnt = spinePageCounts_[i];
-      if (cnt == kUnknownSpinePageCount) {
-        allKnown = false;
-        break;
-      }
-      totalBookPages += cnt;
-      if (i < clampedStart) {
-        pagesBefore += cnt;
-      } else if (i <= clampedEnd) {
-        pagesInSpan += cnt;
-      }
-    }
-    if (allKnown && totalBookPages > 0) {
-      const float progressPages = static_cast<float>(pagesBefore) + clampedRead * static_cast<float>(pagesInSpan);
-      return progressPages / static_cast<float>(totalBookPages);
-    }
-  }
-
   const size_t bookSize = getBookSize();
   if (bookSize == 0) {
     return 0.0f;
   }
-  const size_t prevChapterSize = (clampedStart >= 1) ? getCumulativeSpineItemSize(clampedStart - 1) : 0;
-  const size_t endChapterCumSize = getCumulativeSpineItemSize(clampedEnd);
-  const size_t curChapterSize = (endChapterCumSize >= prevChapterSize) ? (endChapterCumSize - prevChapterSize) : 0;
-  const float sectionProgSize = clampedRead * static_cast<float>(curChapterSize);
+  const size_t prevChapterSize = (currentSpineIndex >= 1) ? getCumulativeSpineItemSize(currentSpineIndex - 1) : 0;
+  const size_t curChapterSize = getCumulativeSpineItemSize(currentSpineIndex) - prevChapterSize;
+  const float sectionProgSize = currentSpineRead * static_cast<float>(curChapterSize);
   const float totalProgress = static_cast<float>(prevChapterSize) + sectionProgSize;
   return totalProgress / static_cast<float>(bookSize);
 }

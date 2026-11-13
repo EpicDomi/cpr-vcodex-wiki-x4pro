@@ -34,6 +34,10 @@ namespace fui = freeink::ui;
 
 static const char* TAG = "WikiSearchActivity";
 
+namespace {
+constexpr fui::ActionId WIKI_ACTION_KEY = 1;
+}
+
 WikiSearchActivity::WikiSearchActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                        std::string initialQuery, bool allowFastInitialRefresh)
     : Activity("WikiSearch", renderer, mappedInput),
@@ -988,6 +992,9 @@ void WikiSearchActivity::renderSearchUi() {
   } else {
       // FreeInkUI Keyboard
       const fui::Rect kbRect = keyboardRect();
+      // loop() routes touches against the published table from another task; build into the
+      // other generation so it never reads a half-rebuilt one (same as KeyboardEntryActivity).
+      interactions.beginPublishCycle();
       fui::GfxRendererTarget target(renderer);
       target.setFont(fui::GfxRendererTarget::FONT_SMALL, SMALL_FONT_ID);
       target.setFont(fui::GfxRendererTarget::FONT_BODY, UI_12_FONT_ID);
@@ -998,6 +1005,9 @@ void WikiSearchActivity::renderSearchUi() {
       fui::KeyboardProps props;
       const fui::KeyboardLayout& layout = currentLayout();
       props.layout = &layout;
+      // Without an action id every key registers as NO_ACTION and touch is ignored; loop()
+      // dispatches on the key value, so one shared id is enough.
+      props.keyAction = WIKI_ACTION_KEY;
       props.okLabel = tr(STR_OK_BUTTON);
       props.shiftLabel = tr(STR_KEY_SHIFT);
       props.modeLabel = symbols ? tr(STR_KEY_MODE_ABC) : tr(STR_KEY_MODE_SYMBOLS);

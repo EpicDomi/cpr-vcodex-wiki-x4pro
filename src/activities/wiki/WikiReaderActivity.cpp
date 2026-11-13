@@ -1048,10 +1048,35 @@ void WikiReaderActivity::loop() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   int tx = 0;
   int ty = 0;
-  if (mappedInput.wasScreenTapped(tx, ty)) {
+  // Touch boards (Xteink X4 Pro) have no Left/Right/Confirm keys, so a stationary
+  // long-press opens the Article Menu and a tap on a link follows it directly.
+  int lpx = 0;
+  int lpy = 0;
+  const bool touchLongPress = mappedInput.wasScreenLongPress(lpx, lpy);
+
+  if (!touchLongPress && mappedInput.wasScreenTapped(tx, ty)) {
     if (ty < metrics.topPadding + metrics.headerHeight) {
       onBack();
       return;
+    }
+    // Links first: pad each rect a little so a fingertip can hit a single word.
+    static constexpr int LINK_TAP_PAD_X = 6;
+    static constexpr int LINK_TAP_PAD_Y = 8;
+    for (size_t li = 0; li < pageLinks_.size(); ++li) {
+      const auto& pl = pageLinks_[li];
+      for (int ri = 0; ri < pl.rectCount; ++ri) {
+        const size_t rectIdx = static_cast<size_t>(pl.rectStartIdx) + ri;
+        if (rectIdx >= linkRects_.size()) break;
+        const auto& rect = linkRects_[rectIdx];
+        if (tx >= rect.x - LINK_TAP_PAD_X && tx < rect.x + rect.width + LINK_TAP_PAD_X &&
+            ty >= rect.y - LINK_TAP_PAD_Y && ty < rect.y + rect.height + LINK_TAP_PAD_Y) {
+          selectedLinkIndex_ = static_cast<int>(li);
+          syncResumeStateToConfig();
+          const std::string href(&hrefPool_[pl.hrefOffset], pl.hrefLen);
+          followLink(href);
+          return;
+        }
+      }
     }
     const int midX = renderer.getScreenWidth() / 2;
     if (tx < midX) {
@@ -1109,7 +1134,7 @@ void WikiReaderActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasLongPressed(MappedInputManager::Button::Confirm, 500)) {
+  if (touchLongPress || mappedInput.wasLongPressed(MappedInputManager::Button::Confirm, 500)) {
     mappedInput.consumeSuppressedRelease();
     
     const char* options[] = {"Table of Contents", "Infobox"};
@@ -1165,6 +1190,18 @@ void WikiReaderActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasBackGesture()) {
     onBack();
     return;
+  }
+
+  // Mid-screen horizontal swipes turn pages (the left-edge back swipe was handled above).
+  switch (mappedInput.wasSwipe()) {
+    case MappedInputManager::SwipeDir::Left:
+      onNextPage();
+      return;
+    case MappedInputManager::SwipeDir::Right:
+      onPrevPage();
+      return;
+    default:
+      break;
   }
 
   // Stage 2 deferred image decode trigger with skim debouncing:

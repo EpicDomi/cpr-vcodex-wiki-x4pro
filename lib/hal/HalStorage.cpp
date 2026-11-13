@@ -45,6 +45,11 @@ class HalStorage::StorageLock {
   ~StorageLock() { xSemaphoreGiveRecursive(HalStorage::getInstance().storageMutex); }
 };
 
+HalStorage::RawAccessLock::RawAccessLock() {
+  xSemaphoreTakeRecursive(HalStorage::getInstance().storageMutex, portMAX_DELAY);
+}
+HalStorage::RawAccessLock::~RawAccessLock() { xSemaphoreGiveRecursive(HalStorage::getInstance().storageMutex); }
+
 void HalStorage::prepareForDeepSleep() {
   StorageLock lock;
   SDCard.shutdown();

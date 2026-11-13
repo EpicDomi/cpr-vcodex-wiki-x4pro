@@ -79,13 +79,16 @@ int clampPercent(int percent) {
 std::string getStatsChapterTitle(Epub& epub, const int spineIndex) {
   int tocIndex = epub.getTocIndexForSpineIndex(spineIndex);
   if (tocIndex < 0) {
-    for (int s = spineIndex - 1; s >= 0; --s) {
-      const int candidate = epub.getTocIndexForSpineIndex(s);
-      if (candidate >= 0) {
-        tocIndex = candidate;
-        break;
+    int nearestTocIndex = -1;
+    int nearestSpineIndex = -1;
+    for (int index = 0; index < epub.getTocItemsCount(); ++index) {
+      const int tocSpineIndex = epub.getSpineIndexForTocIndex(index);
+      if (tocSpineIndex <= spineIndex && tocSpineIndex >= nearestSpineIndex) {
+        nearestSpineIndex = tocSpineIndex;
+        nearestTocIndex = index;
       }
     }
+    tocIndex = nearestTocIndex;
   }
 
   if (tocIndex < 0) {
@@ -253,16 +256,12 @@ EpubReaderActivity::EpubReaderActivity(GfxRenderer& renderer, MappedInputManager
 EpubReaderActivity::~EpubReaderActivity() {
   ImageBlock::setExtractor(nullptr, nullptr);
   discardOverlayPage();  // free the overlay's page snapshot if one is held
-  resetBackgroundSiblingBuild(true);
   section.reset();
   epub.reset();
 }
 
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
-  lastUserActivityMs = millis();
-  lookaheadVerifiedThroughSpine = -1;
-  lookaheadFailedSpine = -1;
 
   if (!epub) {
     return;
@@ -366,7 +365,6 @@ void EpubReaderActivity::onEnter() {
 }
 
 void EpubReaderActivity::onExit() {
-  syncPendingCountingBlink();
   Activity::onExit();
 
   ReaderUtils::requestReaderUiTransitionRefresh(renderer);
@@ -392,7 +390,6 @@ void EpubReaderActivity::onExit() {
   endOfBookOptions.reset();
   endOfBookOptionsReady.store(false, std::memory_order_release);
   ImageBlock::setExtractor(nullptr, nullptr);
-  resetBackgroundSiblingBuild(true);
   section.reset();
   epub.reset();
   APP_STATE.saveToFile();
@@ -402,295 +399,9 @@ ReaderRenderSpec EpubReaderActivity::makeRenderSpec(const uint16_t viewportWidth
   return SETTINGS.readerRenderSpec(viewportWidth, viewportHeight);
 }
 
-void EpubReaderActivity::ensureChapterTitlesCached(const int spineIndex) const {
-  if (!epub || spineIndex == cachedChapterTitleSpine) {
-    return;
-  }
-  cachedChapterTitleSpine = spineIndex;
-  cachedDirectChapterTitle.clear();
-  cachedEffectiveChapterTitle.clear();
-
-  const int directTocIndex = epub->getTocIndexForSpineIndex(spineIndex);
-  if (directTocIndex >= 0) {
-    cachedDirectChapterTitle = epub->getTocItem(directTocIndex).title;
-    cachedEffectiveChapterTitle = cachedDirectChapterTitle;
-    return;
-  }
-
-  for (int s = spineIndex - 1; s >= 0; --s) {
-    const int candidate = epub->getTocIndexForSpineIndex(s);
-    if (candidate >= 0) {
-      cachedEffectiveChapterTitle = epub->getTocItem(candidate).title;
-      break;
-    }
-  }
-}
-
-void EpubReaderActivity::ensureLogicalChapterPageCounts(const ReaderRenderSpec& spec, const bool allowDeferred,
-                                                        bool* ioPopupShown) {
-  (void)allowDeferred;
-  (void)ioPopupShown;
-  if (!epub) return;
-
-  int startSpine = currentSpineIndex;
-  int endSpine = currentSpineIndex;
-  if (!epub->getLogicalChapterSpan(currentSpineIndex, startSpine, endSpine)) {
-    return;
-  }
-
-  bool anySynced = false;
-  for (int i = startSpine; i <= endSpine; ++i) {
-    const bool hadCached = epub->getCachedSpinePageCount(spec, i).has_value();
-    if (Section::trySyncCachedPageCountFromSectionFile(epub, i, spec, false).has_value() && !hadCached) {
-      anySynced = true;
-    }
-  }
-
-  if (section) {
-    if (const auto cached = epub->getCachedSpinePageCount(spec, currentSpineIndex)) {
-      section->setKnownTotalPages(*cached);
-    }
-  }
-
-  if (anySynced) {
-    epub->savePageCountCache(spec);
-  }
-}
-
-int EpubReaderActivity::nextUncountedLogicalSiblingSpine() const {
-  if (!epub || buildViewportWidth == 0 || buildViewportHeight == 0) {
-    return -1;
-  }
-  int startSpine = currentSpineIndex;
-  int endSpine = currentSpineIndex;
-  if (!epub->getLogicalChapterSpan(currentSpineIndex, startSpine, endSpine) || startSpine >= endSpine ||
-      (endSpine - startSpine) > 12) {
-    return -1;
-  }
-  const ReaderRenderSpec spec = makeRenderSpec(buildViewportWidth, buildViewportHeight);
-  for (int s = startSpine; s < currentSpineIndex; ++s) {
-    if (s == logicalCountFailedSpine) continue;
-    if (!epub->getCachedSpinePageCount(spec, s).has_value()) {
-      return s;
-    }
-  }
-  for (int s = currentSpineIndex + 1; s <= endSpine; ++s) {
-    if (s == logicalCountFailedSpine) continue;
-    if (!epub->getCachedSpinePageCount(spec, s).has_value()) {
-      return s;
-    }
-  }
-  return -1;
-}
-
-void EpubReaderActivity::resetBackgroundSiblingBuild(const bool abandonIfLookahead) {
-  if (backgroundSiblingSection) {
-    if (abandonIfLookahead && backgroundSiblingIsLookahead && backgroundSiblingSection->isBuilding()) {
-      backgroundSiblingSection->abandonBuild();
-    }
-    backgroundSiblingSection.reset();
-  }
-  backgroundSiblingSpineIndex = -1;
-  backgroundSiblingIsLookahead = false;
-}
-
-bool EpubReaderActivity::isSettledForSiblingCount() const {
-  if (!epub || !section || section->isBuilding() || section->isPartial() || overlay != Overlay::None ||
-      buildViewportWidth == 0 || buildViewportHeight == 0 || backgroundBuildYieldForInput) {
-    return false;
-  }
-  const unsigned long now = millis();
-  if (lastUserActivityMs != 0 && (now - lastUserActivityMs) < SIBLING_COUNT_IDLE_DELAY_MS) {
-    return false;
-  }
-  return true;
-}
-
-bool EpubReaderActivity::isSettledForLookahead() const {
-  if (!epub || !section || section->isBuilding() || section->isPartial() || overlay != Overlay::None ||
-      buildViewportWidth == 0 || buildViewportHeight == 0 || backgroundBuildYieldForInput) {
-    return false;
-  }
-  // Only start or advance next-chapter lookahead once the user has reached the
-  // last page of the current spine, so intra-chapter page turns (e.g. multi-page
-  // HTML TOC tables) never compete with next-chapter layout or evict font caches.
-  if (section->pageCount == 0 || section->currentPage + 1 < static_cast<int>(section->pageCount)) {
-    return false;
-  }
-  const unsigned long now = millis();
-  if (lastUserActivityMs != 0 && (now - lastUserActivityMs) < LOOKAHEAD_IDLE_DELAY_MS) {
-    return false;
-  }
-  if (lastRenderCompleteMs != 0 && (now - lastRenderCompleteMs) < LOOKAHEAD_IDLE_DELAY_MS) {
-    return false;
-  }
-  return true;
-}
-
-int EpubReaderActivity::nextUncachedLookaheadSpine() const {
-  if (!epub || !section || section->isBuilding() || section->isPartial() || overlay != Overlay::None ||
-      buildViewportWidth == 0 || buildViewportHeight == 0) {
-    return -1;
-  }
-  if (nextUncountedLogicalSiblingSpine() >= 0) {
-    return -1;
-  }
-  if (backgroundSiblingSection && backgroundSiblingIsLookahead && backgroundSiblingSpineIndex >= 0 &&
-      backgroundSiblingSection->isBuilding()) {
-    return backgroundSiblingSpineIndex;
-  }
-  const int spineCount = epub->getSpineItemsCount();
-  if (spineCount <= 0 || currentSpineIndex < 0 || currentSpineIndex + 1 >= spineCount) {
-    return -1;
-  }
-
-  int curFirst = currentSpineIndex;
-  int curLast = currentSpineIndex;
-  if (!epub->getLogicalChapterSpan(currentSpineIndex, curFirst, curLast) || curFirst > currentSpineIndex ||
-      curLast < currentSpineIndex || (curLast - curFirst) > 12) {
-    curFirst = currentSpineIndex;
-    curLast = currentSpineIndex;
-  }
-  if (curLast != currentSpineIndex) {
-    return -1;
-  }
-
-  const int nextStart = curLast + 1;
-  if (nextStart >= spineCount || nextStart > currentSpineIndex + MAX_LOOKAHEAD_SPINES) {
-    return -1;
-  }
-
-  int nextFirst = nextStart;
-  int nextLast = nextStart;
-  if (!epub->getLogicalChapterSpan(nextStart, nextFirst, nextLast) || nextFirst != nextStart ||
-      nextLast < nextStart || (nextLast - nextFirst) > 12) {
-    nextFirst = nextStart;
-    nextLast = nextStart;
-  }
-
-  const int cappedLast = std::min({nextLast, nextStart + MAX_LOOKAHEAD_SPINES - 1,
-                                   currentSpineIndex + MAX_LOOKAHEAD_SPINES, spineCount - 1});
-  if (cappedLast < nextStart) {
-    return -1;
-  }
-
-  const ReaderRenderSpec spec = makeRenderSpec(buildViewportWidth, buildViewportHeight);
-  for (int s = nextStart; s <= cappedLast; ++s) {
-    if (s == lookaheadFailedSpine) continue;
-    if (s <= lookaheadVerifiedThroughSpine && epub->getCachedSpinePageCount(spec, s).has_value()) {
-      continue;
-    }
-    return s;
-  }
-  return -1;
-}
-
-bool EpubReaderActivity::sectionBuildWantsTick() const {
-  if (!section || overlay != Overlay::None) {
-    return false;
-  }
-  if (section->isBuilding()) {
-    return true;
-  }
-  if (section->isPartial() && !partialRebuildStartFailed &&
-      static_cast<int>(section->pageCount) < MAX_BACKGROUND_COUNT_PAGES) {
-    return true;
-  }
-  if (isSettledForSiblingCount() && nextUncountedLogicalSiblingSpine() >= 0) {
-    return true;
-  }
-  return isSettledForLookahead() && nextUncachedLookaheadSpine() >= 0;
-}
-
-EpubReaderActivity::LogicalChapterProgress EpubReaderActivity::getLogicalChapterProgress() const {
-  LogicalChapterProgress out{};
-  if (!epub || !section) {
-    return out;
-  }
-
-  int startSpine = currentSpineIndex;
-  int endSpine = currentSpineIndex;
-  epub->getLogicalChapterSpan(currentSpineIndex, startSpine, endSpine);
-  out.startSpine = startSpine;
-  out.endSpine = endSpine;
-
-  const ReaderRenderSpec spec =
-      (buildViewportWidth > 0 && buildViewportHeight > 0)
-          ? makeRenderSpec(buildViewportWidth, buildViewportHeight)
-          : makeRenderSpec(renderer.getScreenWidth(), renderer.getScreenHeight());
-
-  int pagesBeforeCurrentSpine = 0;
-  int totalLogicalPages = 0;
-  bool allExact = true;
-
-  for (int i = startSpine; i <= endSpine; ++i) {
-    int spinePages = 0;
-    bool spineExact = false;
-
-    if (const auto cached = epub->getCachedSpinePageCount(spec, i)) {
-      spinePages = *cached;
-      spineExact = true;
-    } else if (i == currentSpineIndex) {
-      spinePages = section->estimatedTotalPages();
-      spineExact = section->hasExactTotalPages();
-    } else {
-      const size_t curBytes = epub->getSpineItemSize(currentSpineIndex);
-      const size_t sibBytes = epub->getSpineItemSize(i);
-      const int curEst = section->estimatedTotalPages();
-      if (curBytes > 0 && curEst > 0 && sibBytes > 0) {
-        spinePages = std::max(1, static_cast<int>((static_cast<uint64_t>(curEst) * sibBytes + curBytes / 2) / curBytes));
-      } else {
-        spinePages = 1;
-      }
-      spineExact = false;
-    }
-
-    if (i == currentSpineIndex) {
-      spinePages = std::max(spinePages, std::max<int>(section->pageCount, section->currentPage + 1));
-    }
-
-    if (i < currentSpineIndex) {
-      pagesBeforeCurrentSpine += spinePages;
-    }
-    totalLogicalPages += spinePages;
-    if (!spineExact) {
-      allExact = false;
-    }
-  }
-
-  out.currentPage = pagesBeforeCurrentSpine + section->currentPage + 1;
-  out.totalPages = std::max(totalLogicalPages, out.currentPage);
-  out.isApproximate = !allExact;
-
-  if (epub->getBookSize() > 0 && out.totalPages > 0) {
-    const float chapterProgress = static_cast<float>(out.currentPage) / static_cast<float>(out.totalPages);
-    out.bookProgress = epub->calculateSpanProgress(startSpine, endSpine, chapterProgress) * 100.0f;
-  }
-
-  return out;
-}
-
-bool EpubReaderActivity::buildTickHeapGate(const bool allowFontCacheRelease) {
-  const bool buildActive = (section && section->isBuilding()) ||
-                           (backgroundSiblingSection && backgroundSiblingSection->isBuilding());
-  const size_t minFree = buildActive ? (16 * 1024) : BACKGROUND_BUILD_MIN_FREE_HEAP;
-  const size_t minMaxAlloc = buildActive ? (8 * 1024) : BACKGROUND_BUILD_MIN_MAX_ALLOC;
-  if (ESP.getFreeHeap() >= minFree && ESP.getMaxAllocHeap() >= minMaxAlloc) {
-    buildHeapPaused = false;
-    return true;
-  }
-  invalidateCurrentOverlayPageCache();
-  if (ESP.getFreeHeap() >= minFree && ESP.getMaxAllocHeap() >= minMaxAlloc) {
-    buildHeapPaused = false;
-    return true;
-  }
-  if (!allowFontCacheRelease) {
-    return false;
-  }
-  if (auto* fcm = renderer.getFontCacheManager()) {
-    fcm->releaseSdFontCaches();
-  }
-  buildHeapPaused = ESP.getFreeHeap() < minFree || ESP.getMaxAllocHeap() < minMaxAlloc;
+bool EpubReaderActivity::buildTickHeapGate() {
+  buildHeapPaused =
+      ESP.getFreeHeap() < BACKGROUND_BUILD_MIN_FREE_HEAP || ESP.getMaxAllocHeap() < BACKGROUND_BUILD_MIN_MAX_ALLOC;
   return !buildHeapPaused;
 }
 
@@ -843,10 +554,6 @@ void EpubReaderActivity::openFootnotesFromPowerButton() {
   if (currentPageFootnotes.size() == 1) {
     navigateToHref(currentPageFootnotes[0].href, true);
   } else if (currentPageFootnotes.size() > 1) {
-    {
-      RenderLock lock(*this);
-      resetBackgroundSiblingBuild(true);
-    }
     READING_STATS.noteActivity();
     startActivityForResult(std::make_unique<EpubReaderFootnotesActivity>(renderer, mappedInput, currentPageFootnotes),
                            [this](const ActivityResult& result) {
@@ -908,11 +615,7 @@ bool EpubReaderActivity::runLongPressMenuFunction() {
   }
 }
 
-void EpubReaderActivity::openDictionaryWordSelect(bool isWiki) {
-  {
-    RenderLock lock(*this);
-    resetBackgroundSiblingBuild(true);
-  }
+void EpubReaderActivity::openDictionaryWordSelect(const bool isWiki) {
   int overlayMarginLeft = 0;
   int overlayMarginTop = 0;
   auto page = loadCurrentPageForOverlay(overlayMarginLeft, overlayMarginTop);
@@ -922,8 +625,8 @@ void EpubReaderActivity::openDictionaryWordSelect(bool isWiki) {
   }
   READING_STATS.noteActivity();
   startActivityForResult(
-      std::make_unique<DictionaryWordSelectActivity>(renderer, mappedInput, page, isWiki, SETTINGS.getReaderFontId(),
-                                                     overlayMarginLeft, overlayMarginTop),
+      std::make_unique<DictionaryWordSelectActivity>(renderer, mappedInput, page, SETTINGS.getReaderFontId(),
+                                                     overlayMarginLeft, overlayMarginTop, false, isWiki),
       [this](const ActivityResult&) {
         READING_STATS.resumeSession();
         ReaderUtils::requestReaderUiTransitionRefresh(renderer);
@@ -931,22 +634,18 @@ void EpubReaderActivity::openDictionaryWordSelect(bool isWiki) {
       });
 }
 
+// Offline Wikipedia: open the wiki search pre-filled with `query` (book title / author).
 void EpubReaderActivity::openWikiSearch(const std::string& query) {
-  {
-    RenderLock lock(*this);
-    resetBackgroundSiblingBuild(true);
-  }
   if (auto* fcm = renderer.getFontCacheManager()) {
     fcm->clearCache();
   }
   READING_STATS.noteActivity();
-  startActivityForResult(
-      std::make_unique<WikiSearchActivity>(renderer, mappedInput, query),
-      [this](const ActivityResult&) {
-        READING_STATS.resumeSession();
-        ReaderUtils::requestReaderUiTransitionRefresh(renderer);
-        requestUpdate();
-      });
+  startActivityForResult(std::make_unique<WikiSearchActivity>(renderer, mappedInput, query),
+                         [this](const ActivityResult&) {
+                           READING_STATS.resumeSession();
+                           ReaderUtils::requestReaderUiTransitionRefresh(renderer);
+                           requestUpdate();
+                         });
 }
 
 // Fork page-mark toggle (long Confirm press / toolbar), with the achievement hook.
@@ -996,12 +695,12 @@ void EpubReaderActivity::openReaderMenu() {
   float bookProgress = 0.0f;
   {
     RenderLock lock(*this);
-    resetBackgroundSiblingBuild(true);
-    if (section) {
-      const auto logical = getLogicalChapterProgress();
-      currentPage = logical.currentPage;
-      totalPages = logical.isApproximate ? -1 : logical.totalPages;
-      bookProgress = logical.bookProgress;
+    currentPage = section ? section->currentPage + 1 : 0;
+    totalPages = section ? section->estimatedTotalPages() : 0;
+    if (epub->getBookSize() > 0 && section && section->estimatedTotalPages() > 0) {
+      const float chapterProgress =
+          static_cast<float>(section->currentPage) / static_cast<float>(section->estimatedTotalPages());
+      bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
     }
   }
   const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
@@ -1047,29 +746,10 @@ void EpubReaderActivity::loop() {
   // Idle prewarm (upstream): once the page has settled, batch-load the next
   // page's glyphs so the coming page turn skips its SD font pass.
   constexpr unsigned long IDLE_PREWARM_DEBOUNCE_MS = 400;
-  int touchHeldX = 0;
-  int touchHeldY = 0;
-  const bool buttonHeld = mappedInput.isPressed(MappedInputManager::Button::Up) ||
-                          mappedInput.isPressed(MappedInputManager::Button::Down) ||
-                          mappedInput.isPressed(MappedInputManager::Button::Left) ||
-                          mappedInput.isPressed(MappedInputManager::Button::Right) ||
-                          mappedInput.isPressed(MappedInputManager::Button::Confirm) ||
-                          mappedInput.isPressed(MappedInputManager::Button::Back) ||
-                          mappedInput.isPressed(MappedInputManager::Button::Power);
-  const bool userInputPending = mappedInput.wasAnyPressed() || mappedInput.wasAnyReleased() || buttonHeld ||
-                                (mappedInput.hasTouch() &&
-                                 (mappedInput.isScreenTouchHeld(touchHeldX, touchHeldY) ||
-                                  mappedInput.wasScreenTouchReleased())) ||
-                                pendingManualTurn != 0;
-  if (userInputPending) {
-    lastUserActivityMs = nowMs;
-  }
-  backgroundBuildYieldForInput = userInputPending;
-
-  if (!backgroundBuildYieldForInput && section && !section->isBuilding() && !section->isPartial() &&
-      overlay == Overlay::None && !RenderLock::peek() && renderer.hasFrameBuffer() && lastRenderCompleteMs != 0 &&
+  if (section && !section->isBuilding() && overlay == Overlay::None && !RenderLock::peek() &&
+      renderer.hasFrameBuffer() && lastRenderCompleteMs != 0 &&
       nowMs - lastRenderCompleteMs > IDLE_PREWARM_DEBOUNCE_MS && ESP.getFreeHeap() > RENDER_MIN_FREE_HEAP &&
-      ESP.getMaxAllocHeap() > BACKGROUND_BUILD_MIN_MAX_ALLOC && nextUncountedLogicalSiblingSpine() < 0 &&
+      ESP.getMaxAllocHeap() > BACKGROUND_BUILD_MIN_MAX_ALLOC &&
       (idlePrewarmSpine != currentSpineIndex || idlePrewarmPage != section->currentPage)) {
     RenderLock lock(*this);
     if (section && !section->isBuilding() &&
@@ -1091,41 +771,23 @@ void EpubReaderActivity::loop() {
     }
   }
 
-  if (!backgroundBuildYieldForInput && section && !section->isBuilding() && section->isPartial() &&
-      !partialRebuildStartFailed && buildViewportWidth > 0 && overlay == Overlay::None &&
-      static_cast<int>(section->pageCount) < MAX_BACKGROUND_COUNT_PAGES && !RenderLock::peek() &&
-      buildTickHeapGate()) {
+  if (section && !section->isBuilding() && section->isPartial() && !partialRebuildStartFailed &&
+      buildViewportWidth > 0 &&
+      section->currentPage + PARTIAL_REBUILD_START_MARGIN >= static_cast<int>(section->pageCount) &&
+      !RenderLock::peek()) {
     RenderLock buildLock(*this);
-    resetBackgroundSiblingBuild(true);
-    const ReaderRenderSpec spec = makeRenderSpec(buildViewportWidth, buildViewportHeight);
-    bool started = false;
-    const bool needFrameBufferLoan =
-        !section->hasHtmlCache() && (ESP.getFreeHeap() < 68 * 1024 || ESP.getMaxAllocHeap() < 48 * 1024);
-    if (needFrameBufferLoan) {
-      syncPendingCountingBlink();
-      GfxRenderer::FrameBufferLoan loan(renderer);
-      started = section->startBuild(spec);
-      loan.end();
-      restoreCurrentPageBuffer();
-    } else {
-      started = section->startBuild(spec);
-    }
-    if (!started) {
+    if (!section->startBuild(makeRenderSpec(buildViewportWidth, buildViewportHeight))) {
       partialRebuildStartFailed = true;
       LOG_ERR("ERS", "Failed to resume partial section build");
-    } else {
-      tickCountingStatusBarBlink();
     }
   }
 
-  if (!backgroundBuildYieldForInput && section && section->isBuilding() && overlay == Overlay::None &&
-      !RenderLock::peek() &&
-      (section->isPartial() || static_cast<int>(section->pageCount) < section->currentPage + BUILD_WINDOW_AHEAD ||
-       (static_cast<int>(section->pageCount) < MAX_BACKGROUND_COUNT_PAGES && !section->hasExactTotalPages())) &&
+  if (section && section->isBuilding() && !RenderLock::peek() &&
+      (section->isPartial() || static_cast<int>(section->pageCount) < section->currentPage + BUILD_WINDOW_AHEAD) &&
       buildTickHeapGate()) {
     RenderLock buildLock(*this);
     if (section && section->isBuilding() && buildTickHeapGate()) {
-      if (!section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK, COUNTING_SLICE_BUDGET_MS)) {
+      if (!section->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK)) {
         LOG_ERR("ERS", "Background section build failed");
         // Preserve the visible page across the rebuild. nextPageNumber is normally
         // zero during ordinary page turns, which previously made a failed background
@@ -1133,191 +795,8 @@ void EpubReaderActivity::loop() {
         nextPageNumber = section->currentPage;
         section.reset();
         requestUpdate();
-      } else if (section->isBuildComplete()) {
-        if (epub && buildViewportWidth > 0 && buildViewportHeight > 0) {
-          epub->savePageCountCache(makeRenderSpec(buildViewportWidth, buildViewportHeight));
-        }
-        const bool repositioned = applyDeferredReposition();
-        if (repositioned) {
-          requestUpdate();
-        } else if (nextUncountedLogicalSiblingSpine() < 0) {
-          refreshStatusBarInPlace();
-        } else {
-          tickCountingStatusBarBlink();
-        }
-      } else {
-        tickCountingStatusBarBlink();
-      }
-    }
-  } else if (!backgroundBuildYieldForInput && section && !section->isBuilding() && !section->isPartial() &&
-             buildViewportWidth > 0 && overlay == Overlay::None && !RenderLock::peek()) {
-    // Incrementally build/count any uncounted sibling spine in the active logical chapter
-    // 1 page per tick while idle, yielding immediately on any user input; once the current
-    // chapter group is completely counted and the reader has settled, silently index at most
-    // the next chapter group (+1 chapter / max 2 spines).
-    const int targetSibling = nextUncountedLogicalSiblingSpine();
-    if (targetSibling < 0) {
-      if (backgroundSiblingSection && !backgroundSiblingIsLookahead) {
-        resetBackgroundSiblingBuild(false);
-      }
-      if (countingIndicatorBlinkOff) {
-        refreshStatusBarInPlace();
-      }
-      if (isSettledForLookahead()) {
-        const int targetLookahead = nextUncachedLookaheadSpine();
-        if (targetLookahead < 0) {
-          resetBackgroundSiblingBuild(false);
-        } else {
-          RenderLock lookaheadLock(*this);
-          if (section && !section->isBuilding() && !section->isPartial()) {
-            const ReaderRenderSpec spec = makeRenderSpec(buildViewportWidth, buildViewportHeight);
-            if (Section::trySyncCachedPageCountFromSectionFile(epub, targetLookahead, spec, true).has_value()) {
-              lookaheadVerifiedThroughSpine = std::max(lookaheadVerifiedThroughSpine, targetLookahead);
-              resetBackgroundSiblingBuild(false);
-            } else if (!backgroundSiblingSection || !backgroundSiblingIsLookahead ||
-                       backgroundSiblingSpineIndex != targetLookahead) {
-              resetBackgroundSiblingBuild(true);
-              backgroundSiblingSection = makeUniqueNoThrow<Section>(epub, targetLookahead, renderer);
-              backgroundSiblingSpineIndex = targetLookahead;
-              backgroundSiblingIsLookahead = true;
-              if (!backgroundSiblingSection) {
-                lookaheadFailedSpine = targetLookahead;
-                resetBackgroundSiblingBuild(false);
-              } else if (backgroundSiblingSection->loadSectionFile(spec) && !backgroundSiblingSection->isPartial()) {
-                epub->savePageCountCache(spec);
-                lookaheadVerifiedThroughSpine = std::max(lookaheadVerifiedThroughSpine, targetLookahead);
-                resetBackgroundSiblingBuild(false);
-              } else if (!buildTickHeapGate(/*allowFontCacheRelease=*/false)) {
-                lookaheadFailedSpine = targetLookahead;
-                resetBackgroundSiblingBuild(true);
-              } else {
-                bool started = false;
-                const bool needFrameBufferLoan =
-                    !backgroundSiblingSection->hasHtmlCache() &&
-                    (ESP.getFreeHeap() < 68 * 1024 || ESP.getMaxAllocHeap() < 48 * 1024);
-                if (needFrameBufferLoan) {
-                  syncPendingCountingBlink();
-                  GfxRenderer::FrameBufferLoan loan(renderer);
-                  started = backgroundSiblingSection->startBuild(spec);
-                  loan.end();
-                  restoreCurrentPageBuffer();
-                } else {
-                  started = backgroundSiblingSection->startBuild(spec);
-                }
-                if (!started) {
-                  lookaheadFailedSpine = targetLookahead;
-                  resetBackgroundSiblingBuild(true);
-                } else {
-                  LOG_DBG("ERS", "Started silent lookahead build for spine %d", targetLookahead);
-                }
-              }
-            } else if (backgroundSiblingSection->isBuilding()) {
-              if (!buildTickHeapGate(/*allowFontCacheRelease=*/false) ||
-                  !backgroundSiblingSection->buildSomeMore(LOOKAHEAD_BUILD_PAGES_PER_TICK,
-                                                           LOOKAHEAD_SLICE_BUDGET_MS)) {
-                lookaheadFailedSpine = targetLookahead;
-                resetBackgroundSiblingBuild(true);
-              } else if (backgroundSiblingSection->isBuildComplete()) {
-                LOG_DBG("ERS", "Silent lookahead build complete for spine %d (pages=%u)", targetLookahead,
-                        backgroundSiblingSection->pageCount);
-                lookaheadVerifiedThroughSpine = std::max(lookaheadVerifiedThroughSpine, targetLookahead);
-                resetBackgroundSiblingBuild(false);
-                if (nextUncachedLookaheadSpine() < 0) {
-                  epub->savePageCountCache(spec);
-                }
-              }
-            }
-          }
-        }
-      }
-    } else if (isSettledForSiblingCount()) {
-      RenderLock countLock(*this);
-      if (backgroundSiblingSection && backgroundSiblingIsLookahead) {
-        resetBackgroundSiblingBuild(true);
-      }
-      if (section && !section->isBuilding() && !section->isPartial() && buildTickHeapGate()) {
-        const ReaderRenderSpec spec = makeRenderSpec(buildViewportWidth, buildViewportHeight);
-        if (Section::trySyncCachedPageCountFromSectionFile(epub, targetSibling, spec, true).has_value()) {
-          resetBackgroundSiblingBuild(false);
-          if (nextUncountedLogicalSiblingSpine() < 0 || targetSibling < currentSpineIndex) {
-            refreshStatusBarInPlace();
-          } else {
-            tickCountingStatusBarBlink();
-          }
-        } else {
-          if (!backgroundSiblingSection || backgroundSiblingSpineIndex != targetSibling) {
-            resetBackgroundSiblingBuild(false);
-            backgroundSiblingSection = makeUniqueNoThrow<Section>(epub, targetSibling, renderer);
-            backgroundSiblingSpineIndex = targetSibling;
-            backgroundSiblingIsLookahead = false;
-            if (!backgroundSiblingSection) {
-              epub->setCachedSpinePageCount(spec, targetSibling, 1);
-              logicalCountFailedSpine = targetSibling;
-              resetBackgroundSiblingBuild(false);
-              if (nextUncountedLogicalSiblingSpine() < 0) {
-                refreshStatusBarInPlace();
-              }
-            } else {
-              const bool sibLoaded = backgroundSiblingSection->loadSectionFile(spec);
-              if (sibLoaded && !backgroundSiblingSection->isPartial()) {
-                epub->savePageCountCache(spec);
-                resetBackgroundSiblingBuild(false);
-                if (nextUncountedLogicalSiblingSpine() < 0 || targetSibling < currentSpineIndex) {
-                  refreshStatusBarInPlace();
-                } else {
-                  tickCountingStatusBarBlink();
-                }
-              } else {
-                bool started = false;
-                const bool needFrameBufferLoan =
-                    !backgroundSiblingSection->hasHtmlCache() &&
-                    (ESP.getFreeHeap() < 68 * 1024 || ESP.getMaxAllocHeap() < 48 * 1024);
-                if (needFrameBufferLoan) {
-                  syncPendingCountingBlink();
-                  GfxRenderer::FrameBufferLoan loan(renderer);
-                  started = backgroundSiblingSection->startBuild(spec);
-                  loan.end();
-                  restoreCurrentPageBuffer();
-                } else {
-                  started = backgroundSiblingSection->startBuild(spec);
-                }
-                if (!started) {
-                  const uint16_t fallbackPages =
-                      std::max<uint16_t>(1, backgroundSiblingSection ? backgroundSiblingSection->pageCount : 1);
-                  epub->setCachedSpinePageCount(spec, targetSibling, fallbackPages);
-                  logicalCountFailedSpine = targetSibling;
-                  resetBackgroundSiblingBuild(false);
-                  if (nextUncountedLogicalSiblingSpine() < 0) {
-                    refreshStatusBarInPlace();
-                  }
-                } else {
-                  tickCountingStatusBarBlink();
-                }
-              }
-            }
-          } else if (backgroundSiblingSection->isBuilding()) {
-            if (!backgroundSiblingSection->buildSomeMore(BACKGROUND_BUILD_PAGES_PER_TICK, COUNTING_SLICE_BUDGET_MS)) {
-              const uint16_t fallbackPages =
-                  std::max<uint16_t>(1, backgroundSiblingSection ? backgroundSiblingSection->pageCount : 1);
-              epub->setCachedSpinePageCount(spec, targetSibling, fallbackPages);
-              logicalCountFailedSpine = targetSibling;
-              resetBackgroundSiblingBuild(false);
-              if (nextUncountedLogicalSiblingSpine() < 0) {
-                refreshStatusBarInPlace();
-              }
-            } else if (backgroundSiblingSection->isBuildComplete()) {
-              epub->savePageCountCache(spec);
-              resetBackgroundSiblingBuild(false);
-              if (nextUncountedLogicalSiblingSpine() < 0 || targetSibling < currentSpineIndex) {
-                refreshStatusBarInPlace();
-              } else {
-                tickCountingStatusBarBlink();
-              }
-            } else {
-              tickCountingStatusBarBlink();
-            }
-          }
-        }
+      } else if (section->isBuildComplete() && applyDeferredReposition()) {
+        requestUpdate();
       }
     }
   }
@@ -1561,13 +1040,7 @@ void EpubReaderActivity::skipChapter(const bool forward) {
   lastPageTurnTime = millis();
   invalidateCurrentOverlayPageCache();
 
-  int startSpine = currentSpineIndex;
-  int endSpine = currentSpineIndex;
-  if (epub) {
-    epub->getLogicalChapterSpan(currentSpineIndex, startSpine, endSpine);
-  }
-
-  if (!forward && currentSpineIndex == startSpine && section && section->currentPage > 0) {
+  if (!forward && section && section->currentPage > 0) {
     section->currentPage = 0;
     nextPageNumber = 0;
     sessionProgressTouched = true;
@@ -1575,7 +1048,7 @@ void EpubReaderActivity::skipChapter(const bool forward) {
     return;
   }
 
-  if (!forward && startSpine <= 0 && currentSpineIndex <= startSpine) {
+  if (!forward && currentSpineIndex <= 0) {
     return;
   }
 
@@ -1585,16 +1058,10 @@ void EpubReaderActivity::skipChapter(const bool forward) {
     clearDeferredReposition();
     nextPageNumber = 0;
     if (forward) {
-      currentSpineIndex = endSpine + 1;
-    } else if (currentSpineIndex > startSpine) {
-      currentSpineIndex = startSpine;
-    } else if (startSpine > 0) {
-      int prevStart = startSpine - 1;
-      int prevEnd = startSpine - 1;
-      if (epub) {
-        epub->getLogicalChapterSpan(startSpine - 1, prevStart, prevEnd);
-      }
-      currentSpineIndex = prevStart;
+      currentSpineIndex++;
+    } else if (currentSpineIndex > 0) {
+      pendingPageJump = std::numeric_limits<uint16_t>::max();
+      currentSpineIndex--;
     }
     sessionProgressTouched = true;
     section.reset();
@@ -2025,7 +1492,7 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       const uint32_t selectionVisibleOffset = page->visibleTextOffset;
       READING_STATS.noteActivity();
       startActivityForResult(
-          std::make_unique<DictionaryWordSelectActivity>(renderer, mappedInput, page, false, SETTINGS.getReaderFontId(),
+          std::make_unique<DictionaryWordSelectActivity>(renderer, mappedInput, page, SETTINGS.getReaderFontId(),
                                                          overlayMarginLeft, overlayMarginTop, true),
           [this, selectionSpine, selectionPage, selectionVisibleOffset](const ActivityResult& result) {
             READING_STATS.resumeSession();
@@ -2059,7 +1526,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       {
         RenderLock lock(*this);
         if (epub && epub->getBookSize() > 0 && section && section->pageCount > 0) {
-          bookProgress = getLogicalChapterProgress().bookProgress;
+          const float chapterProgress =
+              static_cast<float>(section->currentPage) / static_cast<float>(section->estimatedTotalPages());
+          bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
         }
       }
       const int initialPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
@@ -2121,7 +1590,6 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
           uint16_t backupSpine = currentSpineIndex;
           uint16_t backupPage = section->currentPage;
           uint16_t backupPageCount = section->pageCount;
-          resetBackgroundSiblingBuild(true);
           section.reset();
           epub->clearCache();
           epub->setupCacheDir();
@@ -2245,7 +1713,6 @@ std::string EpubReaderActivity::moveCompletedBookIfEnabled() {
   const std::string coverBmpPath = epub->getCoverBmpPath();
   {
     RenderLock lock(*this);
-    resetBackgroundSiblingBuild(true);
     section.reset();
     ImageBlock::setExtractor(nullptr, nullptr);
     epub.reset();
@@ -2346,7 +1813,6 @@ void EpubReaderActivity::renderEndOfBook() {
 
 // TODO: Failure handling
 void EpubReaderActivity::render(RenderLock&& lock) {
-  syncPendingCountingBlink();
   currentPageLinks.clear();
   if (!epub) {
     return;
@@ -2397,41 +1863,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   if (!section) {
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     LOG_DBG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
+    section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer));
     partialRebuildStartFailed = false;
-    logicalCountFailedSpine = -1;
-    if (lookaheadVerifiedSpec != renderSpec) {
-      lookaheadVerifiedThroughSpine = -1;
-      lookaheadVerifiedSpec = renderSpec;
-    }
-    lookaheadFailedSpine = -1;
-
-    const bool canAdoptBackgroundSection =
-        backgroundSiblingSection && backgroundSiblingSpineIndex == currentSpineIndex &&
-        backgroundSiblingSection->isBuilding() && !pendingPercentJump && !pendingVisibleTextOffset.has_value() &&
-        pendingAnchor.empty() && !pendingParagraphLookup && !pendingListItemLookup;
-    bool adoptedInProgressSection = false;
-    if (canAdoptBackgroundSection) {
-      LOG_DBG("ERS", "Promoting in-progress background section for spine %d (pages=%u)", currentSpineIndex,
-              backgroundSiblingSection->pageCount);
-      section = std::move(backgroundSiblingSection);
-      resetBackgroundSiblingBuild(false);
-      adoptedInProgressSection = true;
-    } else {
-      resetBackgroundSiblingBuild(true);
-      section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer));
-    }
-    const bool cacheLoaded = adoptedInProgressSection ? (section->pageCount > 0) : section->loadSectionFile(renderSpec);
-    const bool cacheComplete = !adoptedInProgressSection && cacheLoaded && !section->isPartial();
-
-    int logicalStartSpine = currentSpineIndex;
-    int logicalEndSpine = currentSpineIndex;
-    epub->getLogicalChapterSpan(currentSpineIndex, logicalStartSpine, logicalEndSpine);
-    for (int i = logicalStartSpine; i <= logicalEndSpine; ++i) {
-      Section::trySyncCachedPageCountFromSectionFile(epub, i, renderSpec, false);
-    }
-    if (const auto cachedCurrent = epub->getCachedSpinePageCount(renderSpec, currentSpineIndex)) {
-      section->setKnownTotalPages(*cachedCurrent);
-    }
+    const bool cacheLoaded = section->loadSectionFile(renderSpec);
+    const bool cacheComplete = cacheLoaded && !section->isPartial();
 
     const int targetPage =
         pendingPageJump.has_value() ? static_cast<int>(*pendingPageJump) : std::max(nextPageNumber, 0);
@@ -2456,19 +1891,19 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     const bool mustBuildNow =
         !cacheComplete && (!targetAlreadyAvailable || pendingPercentJump || (needsLookup && !lookupAlreadyAvailable));
 
-    bool indexingPopupShown = false;
     if (mustBuildNow) {
-      const unsigned long buildStartMs = millis();
-      const bool showPopup = pendingPercentJump || targetPage > 20;
+      const size_t spineBytes = epub->getCumulativeSpineItemSize(currentSpineIndex) -
+                                (currentSpineIndex > 0 ? epub->getCumulativeSpineItemSize(currentSpineIndex - 1) : 0);
+      const bool showPopup = pendingPercentJump || targetPage > 20 ||
+                             (!section->hasHtmlCache() && spineBytes > 96 * 1024) ||
+                             (needsLookup && !implicitOffsetRestore);
       if (showPopup) {
         GUI.drawPopup(renderer, tr(STR_INDEXING));
-        renderer.displayBuffer(HalDisplay::FAST_REFRESH);
         pagesUntilFullRefresh = 1;
-        indexingPopupShown = true;
       }
 
-      bool started = adoptedInProgressSection && section->isBuilding();
-      if (!started) {
+      bool started = false;
+      {
         GfxRenderer::FrameBufferLoan loan(renderer);
         started = section->startBuild(renderSpec);
       }
@@ -2480,24 +1915,15 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         return;
       }
 
-      const int initialBuildPagesPerStep =
-          (!pendingPercentJump && !needsLookup && targetPage <= 2) ? INTERACTIVE_BUILD_PAGES_PER_CHUNK
-                                                                   : BUILD_PAGES_PER_CHUNK;
       while (!section->isBuildComplete()) {
         const bool enough = pendingPercentJump
                                 ? false
                                 : (needsLookup ? lookupResolved() : static_cast<int>(section->pageCount) > targetPage);
         if (enough) break;
-        if (!indexingPopupShown && millis() - buildStartMs >= 1000) {
-          GUI.drawPopup(renderer, tr(STR_INDEXING));
-          renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-          pagesUntilFullRefresh = 1;
-          indexingPopupShown = true;
-        }
         bool built = false;
         {
           GfxRenderer::FrameBufferLoan loan(renderer);
-          built = section->buildSomeMore(initialBuildPagesPerStep);
+          built = section->buildSomeMore(BUILD_PAGES_PER_CHUNK);
         }
         if (!built) {
           LOG_ERR("ERS", "Failed during incremental section build");
@@ -2509,9 +1935,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         // Long synchronous builds must keep feeding the task watchdog (upstream).
         resetTaskWatchdogIfSubscribed();
       }
-      if (section->isBuilding() || ESP.getFreeHeap() < RENDER_MIN_FREE_HEAP) {
-        releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "incremental section build");
-      }
+      releaseReaderSdFontCachesForLowMemory(renderer, "ERS", "incremental section build");
     } else if (cacheComplete) {
       LOG_DBG("ERS", "Finalized cache found, skipping build");
       cachedChapterTotalPageCount = 0;
@@ -2519,8 +1943,6 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     } else if (cacheLoaded) {
       LOG_DBG("ERS", "Partial cache covers landing page; extension deferred");
     }
-
-    ensureLogicalChapterPageCounts(renderSpec, /*allowDeferred=*/true, &indexingPopupShown);
 
     if (pendingPageJump.has_value()) {
       if (!section->isBuilding() && *pendingPageJump >= section->pageCount && section->pageCount > 0) {
@@ -2608,28 +2030,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     }
   }
 
-  if (backgroundSiblingSection && (backgroundSiblingIsLookahead || ESP.getFreeHeap() < RENDER_MIN_FREE_HEAP)) {
-    resetBackgroundSiblingBuild(true);
-  }
-
   // A page turn may outrun the small background window. Extend synchronously
   // only until the requested page exists; the remainder keeps building in loop().
-  bool catchupPopupShown = false;
-  const unsigned long catchupStartMs = millis();
-  if ((section->isPartial() || section->isBuilding()) &&
-      section->currentPage - static_cast<int>(section->pageCount) > 20) {
-    GUI.drawPopup(renderer, tr(STR_INDEXING));
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-    pagesUntilFullRefresh = 1;
-    catchupPopupShown = true;
-  }
   while (section->isPartial() && section->currentPage >= static_cast<int>(section->pageCount)) {
-    if (!catchupPopupShown && millis() - catchupStartMs >= 1000) {
-      GUI.drawPopup(renderer, tr(STR_INDEXING));
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-      pagesUntilFullRefresh = 1;
-      catchupPopupShown = true;
-    }
     if (!section->isBuilding()) {
       bool started = false;
       {
@@ -2642,13 +2045,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         return;
       }
     }
-    const int pagesPerStep = (section->currentPage <= static_cast<int>(section->pageCount) + 1)
-                                 ? INTERACTIVE_BUILD_PAGES_PER_CHUNK
-                                 : BUILD_PAGES_PER_CHUNK;
     bool built = false;
     {
       GfxRenderer::FrameBufferLoan loan(renderer);
-      built = section->buildSomeMore(pagesPerStep);
+      built = section->buildSomeMore(BUILD_PAGES_PER_CHUNK);
     }
     if (!built) {
       section.reset();
@@ -2659,19 +2059,10 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   }
   while (section->isBuilding() && !section->isBuildComplete() &&
          section->currentPage >= static_cast<int>(section->pageCount)) {
-    if (!catchupPopupShown && millis() - catchupStartMs >= 1000) {
-      GUI.drawPopup(renderer, tr(STR_INDEXING));
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-      pagesUntilFullRefresh = 1;
-      catchupPopupShown = true;
-    }
-    const int pagesPerStep = (section->currentPage <= static_cast<int>(section->pageCount) + 1)
-                                 ? INTERACTIVE_BUILD_PAGES_PER_CHUNK
-                                 : BUILD_PAGES_PER_CHUNK;
     bool built = false;
     {
       GfxRenderer::FrameBufferLoan loan(renderer);
-      built = section->buildSomeMore(pagesPerStep);
+      built = section->buildSomeMore(BUILD_PAGES_PER_CHUNK);
     }
     if (!built) {
       section.reset();
@@ -2748,8 +2139,6 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     discardOverlayPage();
 
     const auto start = millis();
-    countingIndicatorBlinkOff = false;
-    lastCountingBlinkMs = start;
     renderContents(page, orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
     lastRenderCompleteMs = millis();
@@ -2783,14 +2172,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount) {
   if (!epub) return false;
   int progressPercent = 0;
-  int statsChapterPage = currentPage;
-  int statsChapterTotal = pageCount;
-  if (section && spineIndex == currentSpineIndex) {
-    const auto logical = getLogicalChapterProgress();
-    statsChapterPage = std::max(0, logical.currentPage - 1);
-    statsChapterTotal = logical.totalPages;
-    progressPercent = clampPercent(static_cast<int>(logical.bookProgress + 0.5f));
-  } else if (epub->getBookSize() > 0 && pageCount > 0) {
+  if (epub->getBookSize() > 0 && pageCount > 0) {
     const float chapterProgress = static_cast<float>(currentPage + 1) / static_cast<float>(pageCount);
     progressPercent =
         clampPercent(static_cast<int>(epub->calculateProgress(spineIndex, chapterProgress) * 100.0f + 0.5f));
@@ -2803,10 +2185,9 @@ bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
     progressPercent = 99;
   }
 
-  ensureChapterTitlesCached(spineIndex);
   READING_STATS.updateProgress(static_cast<uint8_t>(progressPercent), alreadyCompleted && progressPercent >= 100,
-                               cachedEffectiveChapterTitle,
-                               getStatsChapterProgressPercent(statsChapterPage, statsChapterTotal));
+                               getStatsChapterTitle(*epub, spineIndex),
+                               getStatsChapterProgressPercent(currentPage, pageCount));
 
   // Content offset of the saved page (upstream): lets a re-paginated chapter
   // reopen on the same text instead of the same page number.
@@ -3161,7 +2542,11 @@ void EpubReaderActivity::renderStatusBar() const {
     return;
   }
 
-  const auto logical = getLogicalChapterProgress();
+  // Calculate progress in book
+  const int currentPage = section->currentPage + 1;
+  const float pageCount = section->estimatedTotalPages();
+  const float sectionChapterProg = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) : 0;
+  const float bookProgress = epub->calculateProgress(currentSpineIndex, sectionChapterProg) * 100;
 
   std::string title;
   int textYOffset = 0;
@@ -3179,125 +2564,19 @@ void EpubReaderActivity::renderStatusBar() const {
     }
 
   } else if (sb.titleMode == CrossPointSettings::STATUS_BAR_TITLE::CHAPTER_TITLE) {
-    ensureChapterTitlesCached(currentSpineIndex);
-    title = !cachedDirectChapterTitle.empty() ? cachedDirectChapterTitle : tr(STR_UNNAMED);
+    title = tr(STR_UNNAMED);
+    const int tocIndex = epub->getTocIndexForSpineIndex(currentSpineIndex);
+    if (tocIndex != -1) {
+      const auto tocItem = epub->getTocItem(tocIndex);
+      title = tocItem.title;
+    }
 
   } else if (sb.titleMode == CrossPointSettings::STATUS_BAR_TITLE::BOOK_TITLE) {
     title = epub->getTitle();
   }
 
-  GUI.drawStatusBar(renderer, logical.bookProgress, logical.currentPage, logical.totalPages, title, 0, textYOffset,
-                    true, currentPageBookmarked, logical.isApproximate,
-                    logical.isApproximate && countingIndicatorBlinkOff);
-}
-
-void EpubReaderActivity::syncPendingCountingBlink() {
-  if (!countingBlinkAsyncPending) {
-    return;
-  }
-  countingBlinkAsyncPending = false;
-  if (renderer.hasFrameBuffer()) {
-    display.cleanupGrayscaleBuffers(renderer.getFrameBuffer());
-  } else {
-    display.waitRefreshComplete();
-  }
-}
-
-void EpubReaderActivity::refreshStatusBarInPlace() {
-  syncPendingCountingBlink();
-  countingIndicatorBlinkOff = false;
-  lastCountingBlinkMs = millis();
-  if (statusBarTemporarilyHidden || !section || !epub || overlay != Overlay::None) {
-    return;
-  }
-  const int totalPages = section->estimatedTotalPages();
-  if (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage ||
-      totalPages != lastSavedPageCount) {
-    saveProgress(currentSpineIndex, section->currentPage, totalPages);
-  }
-  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  if (statusBarHeight == 0 && !automaticPageTurnActive) {
-    return;
-  }
-  if (renderer.hasFrameBuffer()) {
-    int marginTop = 0, marginRight = 0, marginBottom = 0, marginLeft = 0;
-    renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-    int clearTop = renderer.getScreenHeight() - statusBarHeight - marginBottom - 4;
-    if (automaticPageTurnActive &&
-        (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
-      clearTop -= UITheme::getInstance().getMetrics().statusBarVerticalMargin;
-    }
-    if (clearTop < 0) clearTop = 0;
-    renderer.fillRect(0, clearTop, renderer.getScreenWidth(), renderer.getScreenHeight() - clearTop,
-                      SETTINGS.darkMode);
-    renderStatusBar();
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-  } else {
-    requestUpdate();
-  }
-}
-
-void EpubReaderActivity::tickCountingStatusBarBlink() {
-  if (statusBarTemporarilyHidden || !section || !epub || overlay != Overlay::None || !renderer.hasFrameBuffer()) {
-    return;
-  }
-  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  if (statusBarHeight == 0 && !automaticPageTurnActive) {
-    return;
-  }
-  const unsigned long now = millis();
-  if (now - lastCountingBlinkMs < COUNTING_BLINK_INTERVAL_MS) {
-    return;
-  }
-  syncPendingCountingBlink();
-  lastCountingBlinkMs = now;
-  countingIndicatorBlinkOff = !countingIndicatorBlinkOff;
-  int marginTop = 0, marginRight = 0, marginBottom = 0, marginLeft = 0;
-  renderer.getOrientedViewableTRBL(&marginTop, &marginRight, &marginBottom, &marginLeft);
-  int clearTop = renderer.getScreenHeight() - statusBarHeight - marginBottom - 4;
-  if (automaticPageTurnActive &&
-      (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
-    clearTop -= UITheme::getInstance().getMetrics().statusBarVerticalMargin;
-  }
-  if (clearTop < 0) clearTop = 0;
-  renderer.fillRect(0, clearTop, renderer.getScreenWidth(), renderer.getScreenHeight() - clearTop, SETTINGS.darkMode);
-  renderStatusBar();
-  if (!SETTINGS.fadingFix && !display.isInverted()) {
-    display.displayBufferAsync(HalDisplay::FAST_REFRESH);
-    countingBlinkAsyncPending = true;
-  } else {
-    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-  }
-}
-
-void EpubReaderActivity::restoreCurrentPageBuffer() {
-  syncPendingCountingBlink();
-  if (!renderer.hasFrameBuffer() || !section) {
-    return;
-  }
-  int marginLeft = 0;
-  int marginTop = 0;
-  auto page = loadCurrentPageForOverlay(marginLeft, marginTop);
-  if (!page) {
-    return;
-  }
-  renderer.clearScreen();
-  const int fontId = SETTINGS.getReaderFontId();
-  if (auto* fcm = renderer.getFontCacheManager()) {
-    auto scope = fcm->createPrewarmScope();
-    page->recordFontUsage(*fcm, fontId, SETTINGS.bionicReading);
-    scope.endScanAndPrewarm();
-    page->render(renderer, fontId, marginLeft, marginTop, SETTINGS.bionicReading);
-    drawTextHighlights(*page, marginTop, marginLeft);
-    renderStatusBar();
-    if (ESP.getFreeHeap() < 24 * 1024) {
-      fcm->releaseSdFontCaches();
-    }
-  } else {
-    page->render(renderer, fontId, marginLeft, marginTop, SETTINGS.bionicReading);
-    drawTextHighlights(*page, marginTop, marginLeft);
-    renderStatusBar();
-  }
+  GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, true, currentPageBookmarked,
+                    section->isBuilding());
 }
 
 void EpubReaderActivity::renderSectionLoadFailure() {
@@ -3345,8 +2624,11 @@ bool EpubReaderActivity::usesToolbarMenu() const {
 
 std::string EpubReaderActivity::currentChapterTitle() const {
   if (!epub) return "";
-  ensureChapterTitlesCached(currentSpineIndex);
-  return !cachedDirectChapterTitle.empty() ? cachedDirectChapterTitle : tr(STR_UNNAMED);
+  const int tocIndex = epub->getTocIndexForSpineIndex(currentSpineIndex);
+  if (tocIndex != -1) {
+    return epub->getTocItem(tocIndex).title;
+  }
+  return tr(STR_UNNAMED);
 }
 
 std::string EpubReaderActivity::textRowName(int row) const {
@@ -3430,10 +2712,6 @@ void EpubReaderActivity::discardOverlayPage() {
 }
 
 void EpubReaderActivity::openOverlay(Overlay target) {
-  {
-    RenderLock lock(*this);
-    resetBackgroundSiblingBuild(true);
-  }
   const Overlay previous = overlay;
   overlay = target;
   if (!toolbarUi) {
@@ -3535,11 +2813,12 @@ void EpubReaderActivity::renderOverlay() {
 
   if (overlay == Overlay::Toolbar) {
     chapterTitle = currentChapterTitle();
-    const auto logical = getLogicalChapterProgress();
-    const float bookProgress = logical.bookProgress / 100.0f;
-    pageInfo = std::to_string(logical.currentPage) +
-               (logical.isApproximate ? " / ??" : ("/" + std::to_string(logical.totalPages))) + "   " +
-               std::to_string(clampPercent(static_cast<int>(logical.bookProgress + 0.5f))) + "%";
+    const int pageCount = section->estimatedTotalPages();
+    const float chapterProgress =
+        pageCount > 0 ? static_cast<float>(section->currentPage + 1) / static_cast<float>(pageCount) : 0.0f;
+    const float bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress);
+    pageInfo = std::to_string(section->currentPage + 1) + "/" + std::to_string(pageCount) + "   " +
+               std::to_string(clampPercent(static_cast<int>(bookProgress * 100.0f + 0.5f))) + "%";
     model.chapterTitle = chapterTitle.c_str();
     model.pageInfo = pageInfo.c_str();
     model.progressPermille = static_cast<int>(bookProgress * 1000.0f + 0.5f);
@@ -3992,21 +3271,22 @@ void EpubReaderActivity::activateMoreRow(int row) {
           !epub || epub->getAuthor().empty(),
           !epub || epub->getTitle().empty(),
       };
-      overlayPopup.show("Search Wikipedia", kWikiOptions, 3, 0,
-                        [this](int idx) {
-                          overlay = Overlay::None;
-                          overlayPopup.dismiss();
-                          discardOverlayPage();
-                          MA targetAction = MA::SEARCH_WIKIPEDIA_WORD;
-                          if (idx == 1) {
-                            targetAction = MA::SEARCH_WIKIPEDIA_AUTHOR;
-                          } else if (idx == 2) {
-                            targetAction = MA::SEARCH_WIKIPEDIA_BOOK_TITLE;
-                          }
-                          onReaderMenuConfirm(targetAction);
-                          requestUpdate();
-                        },
-                        disabled);
+      overlayPopup.show(
+          "Search Wikipedia", kWikiOptions, 3, 0,
+          [this](int idx) {
+            overlay = Overlay::None;
+            overlayPopup.dismiss();
+            discardOverlayPage();
+            MA targetAction = MA::SEARCH_WIKIPEDIA_WORD;
+            if (idx == 1) {
+              targetAction = MA::SEARCH_WIKIPEDIA_AUTHOR;
+            } else if (idx == 2) {
+              targetAction = MA::SEARCH_WIKIPEDIA_BOOK_TITLE;
+            }
+            onReaderMenuConfirm(targetAction);
+            requestUpdate();
+          },
+          disabled);
       paintOverlayPopup();
       return;
     }
@@ -4100,11 +3380,12 @@ ScreenshotInfo EpubReaderActivity::getScreenshotInfo() const {
     info.spineIndex = currentSpineIndex;
   }
   if (section) {
-    const auto logical = getLogicalChapterProgress();
-    info.currentPage = logical.currentPage;
-    info.totalPages = logical.totalPages;
-    if (epub && epub->getBookSize() > 0 && logical.totalPages > 0) {
-      int pct = static_cast<int>(logical.bookProgress + 0.5f);
+    info.currentPage = section->currentPage + 1;
+    info.totalPages = section->estimatedTotalPages();
+    if (epub && epub->getBookSize() > 0 && section->estimatedTotalPages() > 0) {
+      const float chapterProgress =
+          static_cast<float>(section->currentPage) / static_cast<float>(section->estimatedTotalPages());
+      int pct = static_cast<int>(epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f + 0.5f);
       if (pct < 0) pct = 0;
       if (pct > 100) pct = 100;
       info.progressPercent = pct;
@@ -4203,7 +3484,6 @@ void EpubReaderActivity::launchKOReaderSync(const SyncLaunchMode mode) {
     }
     invalidateCurrentOverlayPageCache();
     discardOverlayPage();
-    resetBackgroundSiblingBuild(true);
     section.reset();
     ImageBlock::setExtractor(nullptr, nullptr);
     epub.reset();

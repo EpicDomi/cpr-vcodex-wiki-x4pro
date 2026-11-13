@@ -85,6 +85,51 @@ grays. The script reports its artifact directory; `--output-parent` can place
 it under the gitignored `artifacts/`. It uses only the Python standard library.
 This checks composition, not physical panel tones or refresh waveforms.
 
+## Headless runs in this fork (cloud sessions, CI-like checks)
+
+Verified on Ubuntu 24.04 without a display (2026-11): the simulator builds and
+runs under Xvfb, and the scripted input/screenshot flow above works, so an
+agent can check screens and touch flows without hardware.
+
+```bash
+sudo apt-get update && sudo apt-get install -y libsdl2-dev libssl-dev xvfb
+git clone -b cpr-vcodex https://github.com/boydj/crosspoint-simulator ../crosspoint-simulator
+git -C ../crosspoint-simulator apply "$PWD/test/simulator/crosspoint-simulator-9d9eccd-local.patch"
+# platformio.local.ini (gitignored): repeat [env:simulator] lib_deps with
+#   simulator=symlink://../crosspoint-simulator
+pio run -e simulator_x4_pro_wsl
+mkdir -p /tmp/simrun/shots && cd /tmp/simrun          # fs_/ (the fake SD) is created in the cwd
+CROSSPOINT_SIM_INPUT_SCRIPT='2500:SWIPE:240,700,240,450,300;4500:TAP:240,485;9000:QUIT' \
+CROSSPOINT_SIM_SCREENSHOTS='7500:shots/wiki.bmp' \
+  xvfb-run -a -s "-screen 0 1280x1024x24" "$OLDPWD/.pio/build/simulator_x4_pro_wsl/program"
+```
+
+Notes:
+
+- The published simulator branch (`9d9eccd`) is behind this firmware base, so
+  three one-line stand-ins are kept as a local patch
+  (`test/simulator/crosspoint-simulator-9d9eccd-local.patch`): `HTTPClient::begin`
+  returning `bool`, `HalGPIO::rawInputActive`, and the five-argument
+  `HalDisplay::displayWindow`. Do not work around these in firmware sources (the
+  imported wiki snapshot did; that was reverted). Drop the patch once the
+  simulator branch has them.
+- Wiki images are skipped in the simulator: its JPEGDEC stand-in has no
+  streaming `open()`. Text, links, menus, and touch routing still run.
+- The wiki reads its archive from `WIKI_RAW_DRIVE=/path/to/file.img` (or the
+  path saved in `fs_/.crosspoint/wiki.cfg`); see `SdRawReader.cpp`.
+- The Wikipedia shortcut defaults to the Home screen (second shortcut page),
+  not the Apps list.
+- The simulator checks screens and input routing only. It says nothing about
+  SD timing, the storage lock, task stacks, or e-ink refresh on the device.
+- Clock hazard: the firmware calls `settimeofday()` (RTC bridge in
+  `TimeUtils::applySystemClockFromRtc`, manual date, NTP). In the simulator that
+  is the HOST clock, and as root it succeeds. With `clockHasBeenSynced` set, or
+  under `faketime`, a run will change the machine's real time. Run date/clock
+  experiments as an unprivileged user (the call then fails) or behind a shim
+  that intercepts `settimeofday`, and check `date -u` against a trusted source
+  afterwards. Plain `faketime` runs with default settings (clock never synced)
+  do not set the clock and are safe for day-rollover checks.
+
 ## When the simulator stops compiling
 
 - A missing `Hal*` method or a fork-only ESP-IDF include belongs in the fork's

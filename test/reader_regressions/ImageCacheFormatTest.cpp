@@ -6,7 +6,7 @@
 
 TEST(ImageCacheFormatRegression, UsesVersionedEightByteHeader) {
   EXPECT_EQ(PXC_MAGIC, 0x5850);
-  EXPECT_EQ(PXC_VERSION, 2);
+  EXPECT_EQ(PXC_VERSION, 1);
   EXPECT_EQ(PXC_HEADER_BYTES, 8U);
 }
 
@@ -18,6 +18,5 @@ TEST(ImageCacheFormatRegression, AccountsForPackedRowsAndHeader) {
 }
 
 TEST(ImageCacheFormatRegression, SeparatesWaveformCalibrations) {
-  EXPECT_NE(static_cast<uint8_t>(PixelCacheVariant::Differential),
-            static_cast<uint8_t>(PixelCacheVariant::FactoryLut));
+  EXPECT_NE(static_cast<uint8_t>(PixelCacheVariant::Differential), static_cast<uint8_t>(PixelCacheVariant::FactoryLut));
 }

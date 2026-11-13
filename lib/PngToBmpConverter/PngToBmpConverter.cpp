@@ -724,7 +724,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(HalFile& pngFile, Print& bmpO
         if (atkinson1BitDitherer) atkinson1BitDitherer->nextRow();
       } else {
         for (int x = 0; x < outWidth; x++) {
-          const uint8_t gray = compensateCoverTone(static_cast<uint8_t>(adjustPixel(grayRow[x])));
+          const uint8_t gray = adjustPixel(grayRow[x]);
           uint8_t twoBit;
           if (atkinsonDitherer) {
             twoBit = atkinsonDitherer->processPixel(gray, x);
@@ -791,8 +791,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(HalFile& pngFile, Print& bmpO
           if (atkinson1BitDitherer) atkinson1BitDitherer->nextRow();
         } else {
           for (int x = 0; x < outWidth; x++) {
-            const uint8_t gray =
-                compensateCoverTone(static_cast<uint8_t>(adjustPixel((rowCount[x] > 0) ? (rowAccum[x] / rowCount[x]) : 0)));
+            const uint8_t gray = adjustPixel((rowCount[x] > 0) ? (rowAccum[x] / rowCount[x]) : 0);
             uint8_t twoBit;
             if (atkinsonDitherer) {
               twoBit = atkinsonDitherer->processPixel(gray, x);

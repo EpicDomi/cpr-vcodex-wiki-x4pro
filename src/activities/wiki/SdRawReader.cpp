@@ -1,32 +1,90 @@
 #include "SdRawReader.h"
 
 #include <cstring>
+#include <new>
 
 #include "WikiShared.h"
 #ifdef ESP_PLATFORM
+#include <BoardConfig.h>
+#include <HalStorage.h>
+
+// Block-device access differs per SD transport:
+//  * Native SDMMC (Xteink X4 Pro, ESP32-S3): SDCardManager::rawBlockDevice() is public, but
+//    this SDK revision returns the concrete freeink::SdmmcBlockDevice, whose definition lives
+//    in the library's src/ folder.
+//  * SPI (Xteink X4/X3, ESP32-C3): this SDK revision has no public accessor for the SdFat
+//    card, so the private `sd` member is reached the same way upstream's wiki port did.
+// Newer SDK revisions expose a uniform `FsBlockDeviceInterface* rawBlockDevice()` for both
+// transports; switch to it (and drop both workarounds) when the submodule is updated.
+#if FREEINK_SD_SDMMC
+#include <SDCardManager.h>
+#include <SdmmcBlockDevice.h>
+#else
 #define private public
-#include "SDCardManager.h"
+#include <SDCardManager.h>
 #undef private
+#endif
 #include <Logging.h>
 
 static const char* TAG = "SdRawReader";
+
+namespace {
+// SdFat's SPI card only derives from FsBlockDeviceInterface when the build sets
+// USE_BLOCK_DEVICE_INTERFACE (the SDMMC envs do, the SPI envs do not), so name the
+// concrete type per transport. Both offer readSectors() and syncDevice().
+#if FREEINK_SD_SDMMC
+using WikiBlockDevice = FsBlockDeviceInterface;
+WikiBlockDevice* wikiBlockDevice() { return SDCardManager::getInstance().rawBlockDevice(); }
+#else
+using WikiBlockDevice = SdCard;
+WikiBlockDevice* wikiBlockDevice() { return SDCardManager::getInstance().sd.card(); }
+#endif
+
+// FAT16/32 has no on-disk "contiguous" flag (exFAT does), so SdFat only reports a FAT file as
+// contiguous after walking its whole cluster chain. That walk costs up to ~1000 sector reads
+// on a 4 GB file, and every wiki screen mounts its own reader, so remember the last answer.
+struct ContiguityCache {
+  bool valid = false;
+  bool contiguous = false;
+  uint32_t firstSector = 0;
+  uint64_t fileSize = 0;
+};
+ContiguityCache contiguityCache;
+
+bool fileIsContiguous(FsFile& file, const uint32_t firstSector, const uint64_t fileSize) {
+  if (file.isContiguous()) {
+    return true;
+  }
+  if (contiguityCache.valid && contiguityCache.firstSector == firstSector && contiguityCache.fileSize == fileSize) {
+    return contiguityCache.contiguous;
+  }
+  Sector_t bgn = 0;
+  Sector_t end = 0;
+  const bool contiguous = file.contiguousRange(&bgn, &end) && bgn == firstSector;
+  contiguityCache.valid = true;
+  contiguityCache.contiguous = contiguous;
+  contiguityCache.firstSector = firstSector;
+  contiguityCache.fileSize = fileSize;
+  return contiguous;
+}
+}  // namespace
 
 bool SdRawReader::mount(int, int, int, int) {
   if (mounted_) {
     return true;
   }
 
+  // Raw sector reads bypass HalFile, so they must take the storage lock themselves: the render
+  // task and the main loop both read the card, and on the dual-core X4 Pro the SDMMC driver
+  // funnels every transfer through one shared bounce buffer.
+  HalStorage::RawAccessLock lock;
+
   if (!SDCardManager::getInstance().ready()) {
     LOG_ERR(TAG, "SDCardManager not ready for raw reads");
     return false;
   }
 
-#if FREEINK_SD_SDMMC
-  auto* blockDev = SDCardManager::getInstance().rawBlockDevice();
-#else
-  auto* blockDev = SDCardManager::getInstance().sd.card();
-#endif
-  if (!blockDev) {
+  if (!wikiBlockDevice()) {
     LOG_ERR(TAG, "rawBlockDevice unavailable from SDCardManager");
     return false;
   }
@@ -36,28 +94,36 @@ bool SdRawReader::mount(int, int, int, int) {
     return false;
   }
 
-  file_ptr_ = new FsFile();
-  FsFile* file = static_cast<FsFile*>(file_ptr_);
-  if (SDCardManager::getInstance().openFileForRead(TAG, imgPath, *file)) {
-    if (file->isContiguous()) {
-      base_sector_ = file->firstSector();
-      sector_count_ = file->fileSize() / 512;
-      is_file_ = false;
-      file->close();
-      delete file;
-      file_ptr_ = nullptr;
-      LOG_INF(TAG, "Mounted %s: File IS contiguous! Fast raw reads enabled at LBA %u", imgPath, (uint32_t)base_sector_);
-    } else {
-      base_sector_ = 0;
-      sector_count_ = file->fileSize() / 512;
-      is_file_ = true;
-      LOG_ERR(TAG, "Mounted %s: File IS NOT contiguous! SD reads will be extremely slow. Please re-copy to a freshly formatted card.", imgPath);
-    }
-  } else {
+  FsFile* file = new (std::nothrow) FsFile();
+  if (!file) {
+    LOG_ERR(TAG, "Out of memory opening %s", imgPath);
+    return false;
+  }
+  if (!SDCardManager::getInstance().openFileForRead(TAG, imgPath, *file)) {
     LOG_ERR(TAG, "Failed to open %s", imgPath);
     delete file;
-    file_ptr_ = nullptr;
     return false;
+  }
+
+  const uint64_t fileSize = file->fileSize();
+  const uint32_t firstSector = static_cast<uint32_t>(file->firstSector());
+  sector_count_ = static_cast<uint32_t>(fileSize / 512);
+  if (firstSector != 0 && fileIsContiguous(*file, firstSector, fileSize)) {
+    base_sector_ = firstSector;
+    is_file_ = false;
+    file->close();
+    delete file;
+    file_ptr_ = nullptr;
+    LOG_INF(TAG, "Mounted %s: contiguous, raw reads at LBA %u (%u sectors)", imgPath,
+            static_cast<unsigned>(base_sector_), static_cast<unsigned>(sector_count_));
+  } else {
+    base_sector_ = 0;
+    is_file_ = true;
+    file_ptr_ = file;
+    LOG_ERR(TAG,
+            "Mounted %s: File IS NOT contiguous! SD reads will be extremely slow. Please re-copy to a freshly "
+            "formatted card.",
+            imgPath);
   }
 
   mounted_ = true;
@@ -69,42 +135,41 @@ bool SdRawReader::readSectors(size_t startSector, size_t sectorCount, uint8_t* b
     return false;
   }
 
-  if (startSector + sectorCount > sector_count_) {
-      return false;
+  if (startSector >= sector_count_ || sectorCount > sector_count_ - startSector) {
+    return false;
   }
 
-  if (is_file_ && file_ptr_) {
+  HalStorage::RawAccessLock lock;
+
+  if (is_file_) {
+    if (!file_ptr_) return false;
     FsFile* file = static_cast<FsFile*>(file_ptr_);
     if (!file->seekSet(static_cast<uint64_t>(startSector) * 512)) return false;
-    return file->read(buffer, sectorCount * 512) == (int)(sectorCount * 512);
+    return file->read(buffer, sectorCount * 512) == static_cast<int>(sectorCount * 512);
   }
 
-#if FREEINK_SD_SDMMC
-  auto* blockDev = SDCardManager::getInstance().rawBlockDevice();
-#else
-  auto* blockDev = SDCardManager::getInstance().sd.card();
-#endif
+  WikiBlockDevice* blockDev = wikiBlockDevice();
   if (!blockDev) {
     return false;
   }
 
-  if (blockDev->readSectors(startSector + base_sector_, buffer, sectorCount)) {
+  const uint32_t lba = static_cast<uint32_t>(startSector) + base_sector_;
+  if (blockDev->readSectors(lba, buffer, sectorCount)) {
     return true;
   }
   blockDev->syncDevice();
-  return blockDev->readSectors(startSector + base_sector_, buffer, sectorCount);
+  return blockDev->readSectors(lba, buffer, sectorCount);
 }
 
 void SdRawReader::unmount() {
   if (mounted_) {
-#ifdef ESP_PLATFORM
     if (file_ptr_) {
+      HalStorage::RawAccessLock lock;
       FsFile* file = static_cast<FsFile*>(file_ptr_);
       file->close();
       delete file;
       file_ptr_ = nullptr;
     }
-#endif
     mounted_ = false;
     LOG_INF(TAG, "Unmounted raw block device");
   }
