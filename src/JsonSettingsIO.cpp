@@ -29,6 +29,7 @@
 #include "util/CprVcodexLogs.h"
 #include "util/ShortcutRegistry.h"
 #include "util/TimeZoneRegistry.h"
+#include "util/Timezones.h"
 
 namespace {
 constexpr uint8_t FONT_FAMILY_SCHEMA_VERSION = 3;
@@ -550,6 +551,8 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
   }
 
   loadEnum("lineSpacing", s.lineSpacing, CrossPointSettings::LINE_COMPRESSION_COUNT);
+  loadValue("wordSpacing", s.wordSpacing, CrossPointSettings::WORD_SPACING_MIN, CrossPointSettings::WORD_SPACING_MAX);
+  loadValue("characterSpacing", s.characterSpacing, 0, 4);
   loadValue("screenMargin", s.screenMargin, CrossPointSettings::SCREEN_MARGIN_MIN,
             CrossPointSettings::SCREEN_MARGIN_MAX);
   loadEnum("paragraphAlignment", s.paragraphAlignment, CrossPointSettings::PARAGRAPH_ALIGNMENT_COUNT);
@@ -566,6 +569,13 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
   loadEnum("orientation", s.orientation, CrossPointSettings::ORIENTATION_COUNT);
   loadToggle("extraParagraphSpacing", s.extraParagraphSpacing);
   loadToggle("forceParagraphIndents", s.forceParagraphIndents);
+  if (doc["paragraphIndentSpaces"].is<int>()) {
+    s.paragraphIndentSpaces = static_cast<uint8_t>(std::clamp(doc["paragraphIndentSpaces"].as<int>(), 0, 5));
+  } else {
+    // The fork's previous implicit indent was two spaces; keep it on upgrade.
+    s.paragraphIndentSpaces = 2;
+    if (needsResave) *needsResave = true;
+  }
   loadToggle("textAntiAliasing", s.textAntiAliasing);
   {
     const uint8_t textDarknessSchemaVersion = doc["textDarknessSchemaVersion"] | static_cast<uint8_t>(0);
@@ -593,10 +603,37 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
 
   loadEnum("sideButtonLayout", s.sideButtonLayout, CrossPointSettings::SIDE_BUTTON_LAYOUT_COUNT);
   loadEnum("touchReaderControls", s.touchReaderControls, CrossPointSettings::TOUCH_READER_CONTROLS_COUNT);
+  loadEnum("pageTurnGesture", s.pageTurnGesture, CrossPointSettings::PAGE_TURN_GESTURE_COUNT);
+  loadEnum("previousPageGesture", s.previousPageGesture, CrossPointSettings::PAGE_TURN_GESTURE_COUNT);
+  if (doc["pageTurnGesture"].isNull() && doc["previousPageGesture"].isNull() &&
+      doc["touchReaderControls"].is<uint8_t>()) {
+    const uint8_t mode = doc["touchReaderControls"].as<uint8_t>();
+    if (mode >= 1 && mode <= 3) {
+      s.pageTurnGesture = mode == 1   ? CrossPointSettings::TAP_ONLY
+                          : mode == 2 ? CrossPointSettings::SWIPE_ONLY
+                                      : CrossPointSettings::INVERTED_TAP;
+      s.previousPageGesture = s.pageTurnGesture;
+      if (needsResave) *needsResave = true;
+    }
+  }
+  s.touchReaderControls = s.touchReaderControls != 0;
+  loadToggle("doubleClickPwrLight", s.doubleClickPwrLight);
+  loadEnum("homeButtonTapAction", s.homeButtonTapAction, static_cast<uint8_t>(HomeButtonAction::Count));
+  loadEnum("homeButtonDoubleTapAction", s.homeButtonDoubleTapAction, static_cast<uint8_t>(HomeButtonAction::Count));
+  loadEnum("homeButtonLongPressAction", s.homeButtonLongPressAction, static_cast<uint8_t>(HomeButtonAction::Count));
+  loadEnum("vibration", s.vibration, CrossPointSettings::VIBRATION_COUNT);
+  loadEnum("hapticIntensity", s.hapticIntensity, CrossPointSettings::HAPTIC_HIGH + 1);
   // Legacy key name kept from upstream: 0 = Off, 1 = Tap, 2 = Swipe up.
   loadEnum("tapForReaderMenu", s.showReaderMenu, CrossPointSettings::SHOW_READER_MENU_COUNT);
   loadToggle("frontButtonFollowOrientation", s.frontButtonFollowOrientation);
   loadEnum("longPressMenuFunction", s.longPressMenuFunction, CrossPointSettings::LONG_PRESS_MENU_FUNCTION_COUNT);
+  if (doc["homeButtonLongPressAction"].isNull()) {
+    static constexpr HomeButtonAction legacyActions[] = {HomeButtonAction::Sync, HomeButtonAction::Ignore,
+                                                         HomeButtonAction::Bookmark, HomeButtonAction::Dictionary,
+                                                         HomeButtonAction::ReaderMenu};
+    s.homeButtonLongPressAction = static_cast<uint8_t>(legacyActions[s.longPressMenuFunction]);
+    if (needsResave) *needsResave = true;
+  }
   loadToggle("pwrBtnFootnoteBack", s.pwrBtnFootnoteBack);
   loadToggle("backShortToFileBrowser", s.backShortToFileBrowser);
   if (!doc["longPressButtonBehavior"].isNull()) {
@@ -616,6 +653,7 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
       if (needsResave) *needsResave = true;
     }
   }
+  loadEnum("longPwrBtn", s.longPwrBtn, CrossPointSettings::LONG_PWRBTN_COUNT);
   loadEnum("tiltPageTurn", s.tiltPageTurn, CrossPointSettings::TILT_PAGE_TURN_COUNT);
   // Auto-sleep: minutes since the upstream merge; older files hold the SLEEP_TIMEOUT enum.
   if (!doc["sleepTimeoutMinutes"].isNull()) {
@@ -630,6 +668,7 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
   }
   loadToggle("showHiddenFiles", s.showHiddenFiles);
   loadToggle("hideFileExtension", s.hideFileExtension);
+  loadToggle("libraryUseMetadata", s.libraryUseMetadata);
   loadToggle("removeReadBooksFromRecents", s.removeReadBooksFromRecents);
 
   // Language: ISO code string for stability across enum reorders (upstream format).
@@ -658,6 +697,7 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
     s.opdsPassword[sizeof(s.opdsPassword) - 1] = '\0';
   }
 
+  loadToggle("stablePageNumbers", s.stablePageNumbers);
   loadToggle("statusBarChapterPageCount", s.statusBarChapterPageCount);
   loadToggle("statusBarBookProgressPercentage", s.statusBarBookProgressPercentage);
   loadEnum("statusBarProgressBar", s.statusBarProgressBar, CrossPointSettings::STATUS_BAR_PROGRESS_BAR_COUNT);
@@ -670,6 +710,9 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
   loadValue("clockUtcOffsetQ", s.clockUtcOffsetQ, 0, 104);
   loadEnum("clockFormat", s.clockFormat, static_cast<uint8_t>(2));
   loadToggle("clockHasBeenSynced", s.clockHasBeenSynced);
+  loadValue("clockTimezone", s.clockTimezone, 0, 255);
+  loadEnum("clockDst", s.clockDst, 3);
+  loadToggle("clockShowHeader", s.clockShowInHeader);
 
   using S = CrossPointSettings;
   s.frontButtonBack =
@@ -697,6 +740,10 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
                             S::SLEEP_IMAGE_ORDER_COUNT, S::SLEEP_IMAGE_SHUFFLE);
   s.timeZonePreset =
       TimeZoneRegistry::clampPresetIndex(doc["timeZonePreset"] | TimeZoneRegistry::DEFAULT_TIME_ZONE_INDEX);
+  if (s.clockTimezone >= timezones::count()) {
+    s.clockTimezone = timezones::fromLegacyPreset(s.timeZonePreset);
+    if (needsResave) *needsResave = true;
+  }
   s.dateFormat = clamp(doc["dateFormat"] | s.dateFormat, S::DATE_FORMAT_COUNT, s.dateFormat);
   s.dailyGoalTarget = clamp(doc["dailyGoalTarget"] | s.dailyGoalTarget, S::DAILY_GOAL_TARGET_COUNT, s.dailyGoalTarget);
   s.readingStatsAutoBackup = clamp(doc["readingStatsAutoBackup"] | s.readingStatsAutoBackup,
@@ -799,10 +846,14 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
       clamp(doc["opdsBrowserShortcut"] | s.opdsBrowserShortcut, shortcutLocationCount, s.opdsBrowserShortcut);
   s.opdsBrowserShortcutOrder = clamp(doc["opdsBrowserShortcutOrder"] | s.opdsBrowserShortcutOrder, shortcutOrderCount,
                                      s.opdsBrowserShortcutOrder);
-  s.wikiShortcut =
-      clamp(doc["wikiShortcut"] | s.wikiShortcut, shortcutLocationCount, s.wikiShortcut);
-  s.wikiShortcutOrder = clamp(doc["wikiShortcutOrder"] | s.wikiShortcutOrder, shortcutOrderCount,
-                              s.wikiShortcutOrder);
+  loadEnum("libraryShortcut", s.libraryShortcut, shortcutLocationCount);
+  loadEnum("libraryShortcutOrder", s.libraryShortcutOrder, shortcutOrderCount);
+  loadEnum("pluginsShortcut", s.pluginsShortcut, shortcutLocationCount);
+  loadEnum("pluginsShortcutOrder", s.pluginsShortcutOrder, shortcutOrderCount);
+  loadEnum("libraryShortcutVisible", s.libraryShortcutVisible, 2);
+  loadEnum("pluginsShortcutVisible", s.pluginsShortcutVisible, 2);
+  loadEnum("wikiShortcut", s.wikiShortcut, shortcutLocationCount);
+  loadEnum("wikiShortcutOrder", s.wikiShortcutOrder, shortcutOrderCount);
 
   s.browseFilesShortcutVisible = clamp(doc["browseFilesShortcutVisible"] | s.browseFilesShortcutVisible,
                                        static_cast<uint8_t>(2), s.browseFilesShortcutVisible);
@@ -870,6 +921,7 @@ bool JsonSettingsIO::saveState(const CrossPointState& s, const char* path) {
   doc["showBootScreen"] = s.showBootScreen;
   doc["readerActivityLoadCount"] = s.readerActivityLoadCount;
   doc["lastSleepFromReader"] = s.lastSleepFromReader;
+  doc["flashcardResumePath"] = s.flashcardResumePath;
   doc["lastKnownValidTimestamp"] = s.lastKnownValidTimestamp;
   doc["lastReadingStatsBackupDayOrdinal"] = s.lastReadingStatsBackupDayOrdinal;
   doc["syncDayReminderStartCount"] = s.syncDayReminderStartCount;
@@ -952,6 +1004,7 @@ bool JsonSettingsIO::loadState(CrossPointState& s, const char* json) {
       static_cast<uint8_t>(std::min(static_cast<int>(s.recentOverlaySleepFill), actualOverlayCount));
   s.readerActivityLoadCount = doc["readerActivityLoadCount"] | (uint8_t)0;
   s.lastSleepFromReader = doc["lastSleepFromReader"] | false;
+  s.flashcardResumePath = doc["flashcardResumePath"] | std::string("");
   s.showBootScreen = doc["showBootScreen"] | true;
   s.lastKnownValidTimestamp = doc["lastKnownValidTimestamp"] | static_cast<uint32_t>(0);
   s.lastReadingStatsBackupDayOrdinal = doc["lastReadingStatsBackupDayOrdinal"] | static_cast<uint32_t>(0);
@@ -1053,12 +1106,28 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
 
   doc["sideButtonLayout"] = s.sideButtonLayout;
   doc["touchReaderControls"] = s.touchReaderControls;
+  doc["pageTurnGesture"] = s.pageTurnGesture;
+  doc["previousPageGesture"] = s.previousPageGesture;
+  doc["wordSpacing"] = s.wordSpacing;
+  doc["characterSpacing"] = s.characterSpacing;
+  doc["paragraphIndentSpaces"] = s.paragraphIndentSpaces;
+  doc["doubleClickPwrLight"] = s.doubleClickPwrLight;
+  doc["homeButtonTapAction"] = s.homeButtonTapAction;
+  doc["homeButtonDoubleTapAction"] = s.homeButtonDoubleTapAction;
+  doc["homeButtonLongPressAction"] = s.homeButtonLongPressAction;
+  doc["hapticIntensity"] = s.hapticIntensity;
+  doc["vibration"] = s.vibration;
+  doc["libraryUseMetadata"] = s.libraryUseMetadata;
+  doc["clockTimezone"] = s.clockTimezone;
+  doc["clockDst"] = s.clockDst;
+  doc["clockShowHeader"] = s.clockShowInHeader;
   doc["tapForReaderMenu"] = s.showReaderMenu;
   doc["frontButtonFollowOrientation"] = s.frontButtonFollowOrientation;
   doc["longPressButtonBehavior"] = s.longPressButtonBehavior;
   doc["longPressChapterSkip"] = s.longPressButtonBehavior == CrossPointSettings::LONG_PRESS_CHAPTER_SKIP;
   doc["longPressMenuFunction"] = s.longPressMenuFunction;
   doc["shortPwrBtn"] = s.shortPwrBtn;
+  doc["longPwrBtn"] = s.longPwrBtn;
   doc["pwrBtnFootnoteBack"] = s.pwrBtnFootnoteBack;
   doc["backShortToFileBrowser"] = s.backShortToFileBrowser;
   doc["tiltPageTurn"] = s.tiltPageTurn;
@@ -1098,6 +1167,7 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["koSyncAutoPushOnClose"] = s.koSyncAutoPushOnClose;
 
   doc["statusBarChapterPageCount"] = s.statusBarChapterPageCount;
+  doc["stablePageNumbers"] = s.stablePageNumbers;
   doc["statusBarBookProgressPercentage"] = s.statusBarBookProgressPercentage;
   doc["statusBarProgressBar"] = s.statusBarProgressBar;
   doc["statusBarProgressBarThickness"] = s.statusBarProgressBarThickness;
@@ -1156,6 +1226,12 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["sleepShortcutOrder"] = s.sleepShortcutOrder;
   doc["opdsBrowserShortcut"] = s.opdsBrowserShortcut;
   doc["opdsBrowserShortcutOrder"] = s.opdsBrowserShortcutOrder;
+  doc["libraryShortcut"] = s.libraryShortcut;
+  doc["libraryShortcutOrder"] = s.libraryShortcutOrder;
+  doc["libraryShortcutVisible"] = s.libraryShortcutVisible;
+  doc["pluginsShortcut"] = s.pluginsShortcut;
+  doc["pluginsShortcutOrder"] = s.pluginsShortcutOrder;
+  doc["pluginsShortcutVisible"] = s.pluginsShortcutVisible;
   doc["wikiShortcut"] = s.wikiShortcut;
   doc["wikiShortcutOrder"] = s.wikiShortcutOrder;
   doc["browseFilesShortcutVisible"] = s.browseFilesShortcutVisible;
@@ -1208,6 +1284,7 @@ bool JsonSettingsIO::saveKOReader(const KOReaderCredentialStore& store, const ch
     obj["serverUrl"] = profile.serverUrl;
     obj["matchMethod"] = static_cast<uint8_t>(profile.matchMethod);
     obj["sendMetadata"] = profile.sendMetadata;
+    obj["serverType"] = profile.serverType;
     obj["syncBehavior"] = static_cast<uint8_t>(profile.syncBehavior);
   }
   doc["activeIndex"] = store.activeIndex;
@@ -1246,6 +1323,7 @@ bool JsonSettingsIO::loadKOReader(KOReaderCredentialStore& store, const char* js
                                 ? static_cast<DocumentMatchMethod>(method)
                                 : DocumentMatchMethod::FILENAME;
       profile.sendMetadata = obj["sendMetadata"] | false;
+      profile.serverType = obj["serverType"] | static_cast<uint8_t>(255);
       const uint8_t behavior = obj["syncBehavior"] | static_cast<uint8_t>(KOReaderSyncBehavior::ASK_EVERY_TIME);
       profile.syncBehavior = behavior <= static_cast<uint8_t>(KOReaderSyncBehavior::SMART)
                                  ? static_cast<KOReaderSyncBehavior>(behavior)
@@ -1273,6 +1351,7 @@ bool JsonSettingsIO::loadKOReader(KOReaderCredentialStore& store, const char* js
                               ? static_cast<DocumentMatchMethod>(method)
                               : DocumentMatchMethod::FILENAME;
     profile.sendMetadata = doc["sendMetadata"] | false;
+    profile.serverType = doc["serverType"] | static_cast<uint8_t>(255);
     const uint8_t behavior = doc["syncBehavior"] | static_cast<uint8_t>(KOReaderSyncBehavior::ASK_EVERY_TIME);
     profile.syncBehavior = behavior <= static_cast<uint8_t>(KOReaderSyncBehavior::SMART)
                                ? static_cast<KOReaderSyncBehavior>(behavior)
@@ -1299,6 +1378,7 @@ bool JsonSettingsIO::saveKOReaderLegacyMirror(const KOReaderCredentialStore& sto
   doc["serverUrl"] = store.getServerUrl();
   doc["matchMethod"] = static_cast<uint8_t>(store.getMatchMethod());
   doc["sendMetadata"] = store.getSendMetadata();
+  doc["serverType"] = static_cast<uint8_t>(store.getServerType());
   doc["syncBehavior"] = static_cast<uint8_t>(store.getSyncBehavior());
   return saveJsonDocumentToFile("KRS", path, doc);
 }
@@ -1324,6 +1404,7 @@ bool JsonSettingsIO::loadKOReaderLegacyProfile(KOReaderProfile& profile, const c
                             ? static_cast<DocumentMatchMethod>(method)
                             : DocumentMatchMethod::FILENAME;
   profile.sendMetadata = doc["sendMetadata"] | false;
+  profile.serverType = doc["serverType"] | static_cast<uint8_t>(255);
   const uint8_t behavior = doc["syncBehavior"] | static_cast<uint8_t>(KOReaderSyncBehavior::ASK_EVERY_TIME);
   profile.syncBehavior = behavior <= static_cast<uint8_t>(KOReaderSyncBehavior::SMART)
                              ? static_cast<KOReaderSyncBehavior>(behavior)

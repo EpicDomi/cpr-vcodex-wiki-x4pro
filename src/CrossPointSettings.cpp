@@ -14,6 +14,7 @@
 
 #include "ReaderFontSizes.h"
 #include "fontIds.h"
+#include "util/ParagraphIndentMigration.h"
 
 // Initialize the static instance
 CrossPointSettings CrossPointSettings::instance;
@@ -355,14 +356,13 @@ unsigned long CrossPointSettings::getSleepTimeoutMs() const {
 
 CrossPointSettings::StatusBarSpec CrossPointSettings::statusBarSpec() const {
   StatusBarSpec spec;
-  spec.showChapterPageCount = statusBarChapterPageCount != 0;
+  spec.showChapterPageCount = statusBarChapterPageCount != 0 || stablePageNumbers != 0;
   spec.showBookProgressPercent = statusBarBookProgressPercentage != 0;
   spec.titleMode = statusBarTitle;
   spec.showBattery = statusBarBattery != 0;
   spec.showBatteryPercent = hideBatteryPercentage == HIDE_NEVER;
   spec.clockMode = statusBarClock;
   spec.clock12h = clockFormat == 1;
-  spec.clockUtcOffsetQ = clockUtcOffsetQ;
   spec.progressBarMode = statusBarProgressBar;
   spec.progressBarHeightPx =
       statusBarProgressBar != HIDE_PROGRESS ? static_cast<uint8_t>((statusBarProgressBarThickness + 1) * 2) : 0;
@@ -377,6 +377,9 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
   spec.lineCompression = getReaderLineCompression();
   spec.extraParagraphSpacing = extraParagraphSpacing != 0;
   spec.forceParagraphIndents = forceParagraphIndents != 0;
+  spec.paragraphIndentSpaces = paragraphIndentSpaces;
+  spec.characterSpacing = getCharacterSpacing();
+  spec.wordSpacingPercent = wordSpacing;
   spec.paragraphAlignment = paragraphAlignment;
   spec.viewportWidth = viewportWidth;
   spec.viewportHeight = viewportHeight;

@@ -193,7 +193,7 @@ void BookmarksAppActivity::openBook(const int index) {
         if (!result.isCancelled) {
           const auto& bookmark = std::get<BookmarkResult>(result.data);
           activityManager.goToEpubBookmark(path, bookmark.spineIndex, bookmark.page, bookmark.hasVisibleTextOffset,
-                                           bookmark.visibleTextOffset);
+                                           bookmark.visibleTextOffset, bookmark.bookmarkIndex);
           return;
         }
         closeRouting();
@@ -305,6 +305,6 @@ void BookmarksAppActivity::buildScreen(UiScreen& screen) {
   fui::TextStyle label = screen.theme().smallText;
   label.bold = true;
   props.labelText = label;
-  syncListViewport(screen, props, /*hasSubtitle=*/true);
+  syncListViewport(screen, props);
   screen.list(props);
 }

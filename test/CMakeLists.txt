@@ -24,6 +24,16 @@ FetchContent_MakeAvailable(googletest)
 
 set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 
+# Exercise the same parser configuration as the firmware on every host.
+add_library(expat STATIC
+  ${REPO_ROOT}/lib/expat/xmlparse.c
+  ${REPO_ROOT}/lib/expat/xmlrole.c
+  ${REPO_ROOT}/lib/expat/xmltok.c
+)
+target_include_directories(expat PUBLIC ${REPO_ROOT}/lib/expat)
+target_compile_definitions(expat PUBLIC XML_STATIC XML_GE=0 XML_CONTEXT_BYTES=1024)
+add_library(EXPAT::EXPAT ALIAS expat)
+
 add_library(crosspoint_test_common INTERFACE)
 target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}
@@ -34,7 +44,8 @@ target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}/lib/Serialization
 )
 if(MSVC)
-  target_compile_options(crosspoint_test_common INTERFACE /W4 /Zc:preprocessor)
+  target_compile_options(crosspoint_test_common INTERFACE /W4 /Zc:preprocessor /utf-8)
+  target_include_directories(crosspoint_test_common INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/windows_compat)
 else()
   target_compile_options(crosspoint_test_common INTERFACE
     -Wall
@@ -54,20 +65,28 @@ add_subdirectory(hyphenation_eval)
 add_subdirectory(utf8_compose)
 add_subdirectory(opds_filename)
 add_subdirectory(html_to_plain_text)
+add_subdirectory(library_text)
+add_subdirectory(library_format)
+add_subdirectory(library_index_file)
+add_subdirectory(library_builder)
 add_subdirectory(minibidi_arabic)
 add_subdirectory(combining_marks)
 add_subdirectory(credential_integrity)
 add_subdirectory(xml_parser_utils)
 add_subdirectory(token_boundary)
+add_subdirectory(koreader_xpath_resolver)
+add_subdirectory(progress_comparison)
 add_subdirectory(font_cache_manager)
 add_subdirectory(css_parser)
 add_subdirectory(chapter_html_slim_parser)
+add_subdirectory(korean_line_breaking)
 add_subdirectory(ligature_guard)
 add_subdirectory(page_link)
 
 # Fork (CPR-vCodex) suites
 add_subdirectory(reader_position)
 add_subdirectory(reader_regressions)
+add_subdirectory(stable_page_numbers)
 add_subdirectory(language_settings)
 add_subdirectory(ota_update)
 add_subdirectory(jpegdec)
@@ -81,6 +100,8 @@ if(Python3_Interpreter_FOUND)
   set_tests_properties(autoflash_manifest_regressions PROPERTIES WORKING_DIRECTORY ${REPO_ROOT})
   add_test(NAME firmware_packaging_regressions
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/release_tools/FirmwarePackagingTest.py)
+  add_test(NAME firmware_lto_regressions
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/release_tools/FirmwareLtoTest.py)
   add_test(
     NAME web_optimizer_regressions
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/web_optimizer_regressions/EpubOptimizerFallbackTest.py
@@ -94,3 +115,35 @@ if(Python3_Interpreter_FOUND)
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/release_tools/FirmwareBudgetReportTest.py
   )
 endif()
+add_subdirectory(content_opf_parser)
+add_subdirectory(chapter_position)
+add_subdirectory(home_button)
+add_subdirectory(button_press_navigation)
+
+add_subdirectory(inflate_stream)
+add_subdirectory(fs_helpers)
+add_subdirectory(txt_to_html)
+
+add_subdirectory(absolute_grayscale)
+
+add_subdirectory(sd_card_font)
+add_subdirectory(glyph_bitmap)
+
+add_subdirectory(reader_session)
+add_subdirectory(reader_plugin_session)
+add_subdirectory(header_status_layout)
+add_subdirectory(popup_viewport)
+add_subdirectory(list_navigation)
+add_subdirectory(bookmarks_window)
+add_subdirectory(plugin_manifest_classification)
+add_subdirectory(protected_paths)
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME TrustedTimeTimezone COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_trusted_time.py)
+add_subdirectory(activity_lifecycle)
+add_subdirectory(flashcard_resume)
+add_subdirectory(koreader_sync_recovery)
+add_subdirectory(koreader_recovery)
+add_subdirectory(koreader_sync_client)
+add_subdirectory(opds_feed_loading)
+add_subdirectory(opds_parser_recovery)
