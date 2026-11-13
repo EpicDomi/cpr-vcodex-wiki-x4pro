@@ -893,8 +893,8 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
       clamp(doc["sleepShortcutVisible"] | s.sleepShortcutVisible, static_cast<uint8_t>(2), s.sleepShortcutVisible);
   s.opdsBrowserShortcutVisible = clamp(doc["opdsBrowserShortcutVisible"] | s.opdsBrowserShortcutVisible,
                                        static_cast<uint8_t>(2), s.opdsBrowserShortcutVisible);
-  s.wikiShortcutVisible = clamp(doc["wikiShortcutVisible"] | s.wikiShortcutVisible,
-                                static_cast<uint8_t>(2), s.wikiShortcutVisible);
+  s.wikiShortcutVisible =
+      clamp(doc["wikiShortcutVisible"] | s.wikiShortcutVisible, static_cast<uint8_t>(2), s.wikiShortcutVisible);
 
   migrateLegacyStatsShortcut(s, doc, needsResave);
   normalizeShortcutOrderSettings(s);

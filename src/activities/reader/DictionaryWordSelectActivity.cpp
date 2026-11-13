@@ -1,5 +1,4 @@
 #include "DictionaryWordSelectActivity.h"
-#include "activities/wiki/WikiSearchActivity.h"
 
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
@@ -18,6 +17,7 @@
 #include "DictionarySuggestionsActivity.h"
 #include "HapticFeedback.h"
 #include "MappedInputManager.h"
+#include "activities/wiki/WikiSearchActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 

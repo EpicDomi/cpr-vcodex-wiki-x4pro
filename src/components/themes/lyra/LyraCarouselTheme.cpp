@@ -22,7 +22,6 @@
 #include "components/icons/hotspot.h"
 #include "components/icons/image24.h"
 #include "components/icons/library.h"
-#include "components/icons/wikipedia.h"
 #include "components/icons/recent.h"
 #include "components/icons/settings.h"
 #include "components/icons/settings2.h"
@@ -31,6 +30,7 @@
 #include "components/icons/trophy.h"
 #include "components/icons/trophy24.h"
 #include "components/icons/wifi.h"
+#include "components/icons/wikipedia.h"
 #include "fontIds.h"
 
 namespace {
