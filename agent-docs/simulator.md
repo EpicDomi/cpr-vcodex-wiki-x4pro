@@ -275,15 +275,18 @@ validate physical buttons, wake timing or X4 Pro double-clicks.
 
 ## Headless runs in this fork (cloud sessions, CI-like checks)
 
-Verified on Ubuntu 24.04 without a display (2026-11): the simulator builds and
-runs under Xvfb, and the scripted input/screenshot flow above works, so an
-agent can check screens and touch flows without hardware.
+Verified on Ubuntu 24.04 without a display (2026-11, firmware at upstream
+`6bde1d6` + wiki): the simulator builds and runs under Xvfb, and the scripted
+input/screenshot flow above works, so an agent can check screens and touch
+flows without hardware.
 
 ```bash
 sudo apt-get update && sudo apt-get install -y libsdl2-dev libssl-dev xvfb
-git clone -b cpr-vcodex https://github.com/boydj/crosspoint-simulator ../crosspoint-simulator
-git -C ../crosspoint-simulator apply "$PWD/test/simulator/crosspoint-simulator-9d9eccd-local.patch"
-# platformio.local.ini (gitignored): repeat [env:simulator] lib_deps with
+git clone https://github.com/crosspoint-reader/crosspoint-simulator ../crosspoint-simulator
+git -C ../crosspoint-simulator checkout 84c3421
+git -C ../crosspoint-simulator apply "$PWD/test/simulator/crosspoint-simulator-84c3421-vcodex.patch"
+# platformio.local.ini (gitignored): repeat [env:simulator] lib_deps from
+# platformio.ini, replacing the simulator line with
 #   simulator=symlink://../crosspoint-simulator
 pio run -e simulator_x4_pro_wsl
 mkdir -p /tmp/simrun/shots && cd /tmp/simrun          # fs_/ (the fake SD) is created in the cwd
@@ -294,13 +297,17 @@ CROSSPOINT_SIM_SCREENSHOTS='7500:shots/wiki.bmp' \
 
 Notes:
 
-- The published simulator branch (`9d9eccd`) is behind this firmware base, so
-  three one-line stand-ins are kept as a local patch
-  (`test/simulator/crosspoint-simulator-9d9eccd-local.patch`): `HTTPClient::begin`
-  returning `bool`, `HalGPIO::rawInputActive`, and the five-argument
-  `HalDisplay::displayWindow`. Do not work around these in firmware sources (the
-  imported wiki snapshot did; that was reverted). Drop the patch once the
-  simulator branch has them.
+- The simulator branch `platformio.ini` points at (`boydj/crosspoint-simulator`
+  `cpr-vcodex`, `9d9eccd`) does not compile against this firmware (no
+  `HalHaptics.h`, among others). The patch above is that branch's fork stubs
+  re-applied on the official simulator's `main` at `84c3421`, plus five small
+  stand-ins: `HTTPClient::begin` returning `bool`, the five-argument
+  `HalDisplay::displayWindow`, `BoardConfig::hasHaptics`, and the removal of
+  the simulator's own `ContentProtection.h` and a duplicate
+  `coldBootImpliesPowerButton` (the firmware/SDK now provide both). Do not work
+  around simulator gaps in firmware sources (the imported wiki snapshot did;
+  that was reverted). Regenerate the patch with `git diff <official commit>`
+  when either side moves.
 - Wiki images are skipped in the simulator: its JPEGDEC stand-in has no
   streaming `open()`. Text, links, menus, and touch routing still run.
 - The wiki reads its archive from `WIKI_RAW_DRIVE=/path/to/file.img` (or the

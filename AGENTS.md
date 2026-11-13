@@ -57,9 +57,21 @@ reader (`src/activities/wiki/`), maintained for an Xteink X4 Pro. Where these
 notes differ from the upstream rules above, these notes win for this fork.
 
 - Default branch is `main`. Upstream is `franssjz/cpr-vcodex` (`master`); the
-  wiki code comes from `Metske/cpr-vcodex-wiki` (`main`), which is a snapshot of
-  upstream commit `a4ae01a` (just after `1.6.0.38-cpr-vcodex`) with no shared
-  git history.
+  wiki code comes from `Metske/cpr-vcodex-wiki` (`main`), a snapshot of upstream
+  commit `a4ae01a` (just after `1.6.0.38-cpr-vcodex`) published without shared
+  git history. A history-join commit records that ancestry, so upstream updates
+  are ordinary merges: `git fetch https://github.com/franssjz/cpr-vcodex master`
+  then `git merge FETCH_HEAD`. Last merged upstream commit: `6bde1d6`
+  (1.6.5.7 + 3). The 1.6.0.38-based wiki build is the merge of pull request 1.
+- Expect conflicts only where a wiki hook sits beside an upstream addition
+  (shortcut registry and its array size, shortcut settings and their JSON
+  load/save, icon tables, the Apps/Home shortcut switches). Keep both sides.
+  Then rebuild `x4pro-gh_release_rc`, run the native tests, and smoke-test the
+  wiki in the simulator (`agent-docs/simulator.md`).
+- Original X4/X3 (ESP32-C3): with the wiki included, current upstream no longer
+  fits the 6,553,600-byte C3 slot (`gh_release` was 6,583,335 bytes at
+  `6bde1d6`). This fork targets the X4 Pro; do not trim upstream features to
+  make the C3 image fit without asking the owner.
 - Keep the wiki isolated: wiki code lives in `src/activities/wiki/`, and hooks
   into upstream files stay as small as possible so upstream merges stay easy.
   Metske's non-wiki changes (EPUB exact page counts, image tone curves, build
