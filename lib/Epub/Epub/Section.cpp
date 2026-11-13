@@ -39,7 +39,7 @@ namespace {
 // v49: merged upstream develop (BiDi/RTL layout, per-page internal-link rectangles,
 //      direction in serialized BlockStyle); strictly above both lineages (fork 48,
 //      upstream 45) so every existing cache rebuilds once.
-constexpr uint8_t SECTION_FILE_VERSION = kSectionFileVersion;
+constexpr uint8_t SECTION_FILE_VERSION = 49;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects
@@ -134,8 +134,6 @@ void Section::writeSectionFileHeader(const ReaderRenderSpec& spec) {
 }
 
 bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
-  activeSpec_ = spec;
-  knownTotalPages_ = epub ? epub->getCachedSpinePageCount(spec, spineIndex) : std::nullopt;
   if (!Storage.openFileForRead("SCT", filePath, file)) {
     return false;
   }
@@ -212,13 +210,6 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     serialization::readPod(file, partialTotalBytes_);
     partial_ = true;
     partialPageCount_ = pageCount;
-  } else {
-    partial_ = false;
-    partialPageCount_ = 0;
-    knownTotalPages_ = pageCount;
-    if (epub) {
-      epub->setCachedSpinePageCount(spec, spineIndex, pageCount);
-    }
   }
 
   // Explicit close() required: member variable persists beyond function scope
@@ -263,17 +254,11 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
     LOG_ERR("SCT", "startBuild called while a build is already active");
     return false;
   }
-  activeSpec_ = spec;
-  if (!knownTotalPages_ && epub) {
-    knownTotalPages_ = epub->getCachedSpinePageCount(spec, spineIndex);
-  }
   // CrossPoint c4d8c395: section layout is allocation-heavy and every SD font
   // cache below is rebuildable. Reclaim it before CSS/parser/page arenas so a
-  // large retained glyph bitmap cannot split the remaining C3 heap when low.
-  if (ESP.getFreeHeap() < 64 * 1024 || ESP.getMaxAllocHeap() < 48 * 1024) {
-    if (auto* fontCache = renderer.getFontCacheManager()) {
-      fontCache->releaseSdFontCaches();
-    }
+  // large retained glyph bitmap cannot split the remaining C3 heap.
+  if (auto* fontCache = renderer.getFontCacheManager()) {
+    fontCache->releaseSdFontCaches();
   }
   buildComplete_ = false;
   builtPageCount_ = 0;
@@ -457,7 +442,7 @@ bool Section::startBuild(const ReaderRenderSpec& spec, const std::function<void(
   return true;
 }
 
-bool Section::buildSomeMore(const int maxPages, const unsigned long maxTimeMs) {
+bool Section::buildSomeMore(const int maxPages) {
   if (!build_ || !build_->parser) {
     LOG_ERR("SCT", "buildSomeMore with no active build");
     return false;
@@ -466,7 +451,6 @@ bool Section::buildSomeMore(const int maxPages, const unsigned long maxTimeMs) {
   // pageCount stays pinned at the partial's watermark until the build passes it, which
   // would otherwise turn one "small" chunk into a blocking rebuild of the whole watermark.
   const int startCount = builtPageCount_;
-  const unsigned long startMs = maxTimeMs > 0 ? millis() : 0;
   for (;;) {
     const auto status = build_->parser->parseStep();
     if (status == ChapterHtmlSlimParser::ParseStatus::Error) {
@@ -477,10 +461,8 @@ bool Section::buildSomeMore(const int maxPages, const unsigned long maxTimeMs) {
     if (status == ChapterHtmlSlimParser::ParseStatus::Done) {
       return finalizeBuild();
     }
-    // ParseStatus::More: yield once we've laid out the requested number of pages
-    // or reached the optional slice time budget.
-    if ((maxPages > 0 && (builtPageCount_ - startCount) >= maxPages) ||
-        (maxTimeMs > 0 && (millis() - startMs) >= maxTimeMs)) {
+    // ParseStatus::More: yield once we've laid out the requested number of pages.
+    if (maxPages > 0 && (builtPageCount_ - startCount) >= maxPages) {
       build_->bytesConsumed = build_->parser->parseBytesConsumed();
       return true;
     }
@@ -510,10 +492,6 @@ std::optional<uint16_t> Section::findAnchor(const std::string& anchor) const {
 }
 
 uint16_t Section::estimatedTotalPages() const {
-  if (knownTotalPages_.has_value()) {
-    return std::max<uint16_t>(*knownTotalPages_, pageCount);
-  }
-
   // Extrapolation from a suspended session's watermark trailer. A static snapshot, so no EMA
   // damping is needed. Also the best guess while a rebuild is running but hasn't laid out
   // enough pages yet to extrapolate from its own progress.
@@ -678,130 +656,7 @@ bool Section::finalizeBuild() {
   partial_ = false;
   partialPageCount_ = 0;
   pageCount = builtPageCount_;
-  knownTotalPages_ = pageCount;
-  if (epub) {
-    epub->setCachedSpinePageCount(activeSpec_, spineIndex, pageCount);
-  }
   return true;
-}
-
-std::optional<uint16_t> Section::trySyncCachedPageCountFromSectionFile(const std::shared_ptr<Epub>& epub,
-                                                                       const int spineIndex,
-                                                                       const ReaderRenderSpec& spec,
-                                                                       const bool flushToDisk) {
-  if (!epub || spineIndex < 0 || spineIndex >= epub->getSpineItemsCount()) {
-    return std::nullopt;
-  }
-
-  if (const auto cached = epub->getCachedSpinePageCount(spec, spineIndex)) {
-    return cached;
-  }
-
-  // Check if a finalized section .bin matching spec already exists on disk
-  const std::string sectionBinPath = epub->getCachePath() + "/sections/" + std::to_string(spineIndex) + ".bin";
-  HalFile f;
-  if (Storage.openFileForRead("SCT", sectionBinPath, f) && f.size() >= HEADER_SIZE) {
-    uint8_t version = 0;
-    serialization::readPod(f, version);
-    if (version == SECTION_FILE_VERSION) {
-      ReaderRenderSpec fileSpec{};
-      serialization::readPod(f, fileSpec.fontId);
-      serialization::readPod(f, fileSpec.lineCompression);
-      serialization::readPod(f, fileSpec.extraParagraphSpacing);
-      serialization::readPod(f, fileSpec.forceParagraphIndents);
-      serialization::readPod(f, fileSpec.paragraphAlignment);
-      serialization::readPod(f, fileSpec.viewportWidth);
-      serialization::readPod(f, fileSpec.viewportHeight);
-      serialization::readPod(f, fileSpec.hyphenationEnabled);
-      serialization::readPod(f, fileSpec.embeddedStyle);
-      serialization::readPod(f, fileSpec.imageRendering);
-      serialization::readPod(f, fileSpec.focusReadingEnabled);
-      if (fileSpec == spec) {
-        uint16_t count = 0;
-        serialization::readPod(f, count);
-        f.close();
-        epub->setCachedSpinePageCount(spec, spineIndex, count, flushToDisk);
-        return count;
-      }
-    }
-    f.close();
-  }
-  return std::nullopt;
-}
-
-std::optional<uint16_t> Section::countSectionPages(const std::shared_ptr<Epub>& epub, const int spineIndex,
-                                                   GfxRenderer& renderer, const ReaderRenderSpec& spec,
-                                                   const std::function<void()>& popupFn, const bool flushToDisk) {
-  if (const auto synced = trySyncCachedPageCountFromSectionFile(epub, spineIndex, spec, flushToDisk)) {
-    return synced;
-  }
-  if (!epub || spineIndex < 0 || spineIndex >= epub->getSpineItemsCount()) {
-    return std::nullopt;
-  }
-
-  CssParser* cssParser = nullptr;
-  bool hydratedCssHere = false;
-  if (spec.embeddedStyle) {
-    cssParser = epub->getCssParser();
-    if (cssParser && cssParser->empty()) {
-      const CssParser::CacheLoadResult cacheResult = cssParser->loadFromCache();
-      if (cacheResult == CssParser::CacheLoadResult::LowMemory) {
-        LOG_ERR("SCT", "Insufficient heap to hydrate CSS for countSectionPages");
-        cssParser->clear();
-        return std::nullopt;
-      }
-      hydratedCssHere = true;
-    }
-  }
-
-  std::vector<std::string> tocAnchors;
-  const int startTocIndex = epub->getTocIndexForSpineIndex(spineIndex);
-  if (startTocIndex >= 0) {
-    for (int i = startTocIndex; i < epub->getTocItemsCount(); i++) {
-      auto entry = epub->getTocItem(i);
-      if (entry.spineIndex != spineIndex) break;
-      if (!entry.anchor.empty()) {
-        tocAnchors.push_back(std::move(entry.anchor));
-      }
-    }
-  }
-
-  const auto localPath = epub->getSpineItem(spineIndex).href;
-  const size_t lastSlash = localPath.find_last_of('/');
-  const std::string contentBase = (lastSlash != std::string::npos) ? localPath.substr(0, lastSlash + 1) : "";
-  const std::string imageBasePath = epub->getCachePath() + "/img_" + std::to_string(spineIndex) + "_";
-  const std::string htmlPath = epub->getCachePath() + "/html/" + std::to_string(spineIndex) + ".html";
-
-  Hyphenator::setPreferredLanguage(epub->getLanguage());
-
-  ChapterHtmlSlimParser parser(epub, htmlPath, renderer, spec.fontId, spec.lineCompression, spec.extraParagraphSpacing,
-                               spec.forceParagraphIndents, spec.paragraphAlignment, spec.viewportWidth,
-                               spec.viewportHeight, spec.hyphenationEnabled, spec.focusReadingEnabled, nullptr,
-                               spec.embeddedStyle, contentBase, imageBasePath, spec.imageRendering,
-                               std::move(tocAnchors), popupFn, cssParser);
-  parser.setCountOnly(true);
-
-  const uint32_t t0 = millis();
-  bool ok = false;
-  if (Storage.exists(htmlPath.c_str())) {
-    ok = parser.parseAndBuildPages();
-  } else {
-    ok = parser.parseAndCountPagesFromStream(localPath, epub->getSpineItemSize(spineIndex));
-  }
-
-  if (hydratedCssHere && cssParser) {
-    cssParser->clear();
-  }
-
-  if (!ok) {
-    LOG_ERR("SCT", "countSectionPages failed for spine %d", spineIndex);
-    return std::nullopt;
-  }
-
-  const uint16_t count = static_cast<uint16_t>(parser.getCompletedPageCount());
-  epub->setCachedSpinePageCount(spec, spineIndex, count, flushToDisk);
-  LOG_DBG("SCT", "Counted spine %d: %u pages in %lu ms", spineIndex, count, static_cast<unsigned long>(millis() - t0));
-  return count;
 }
 
 void Section::suspendBuild() {

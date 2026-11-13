@@ -55,8 +55,6 @@ class Section {
     uint32_t smoothedAtConsumed = 0;
   };
   std::unique_ptr<BuildContext> build_;
-  ReaderRenderSpec activeSpec_{};
-  std::optional<uint16_t> knownTotalPages_;
   bool buildComplete_ = false;
   // Pages laid out by the active build (== build_->lut.size()). Distinct from pageCount,
   // which is the pages *available to read* and also counts a loaded partial file's pages.
@@ -98,27 +96,15 @@ class Section {
   //   if (!startBuild(...)) fail;
   //   each tick: buildSomeMore(N); render up to pageCount; when isBuildComplete() stop.
   bool startBuild(const ReaderRenderSpec& spec, const std::function<void()>& popupFn = nullptr);
-  // Lay out up to maxPages more pages (maxPages <= 0 = build to completion) or until
-  // maxTimeMs elapses (maxTimeMs == 0 = no time limit). Returns false on error (the build
-  // is abandoned). Sets isBuildComplete() when finished.
-  bool buildSomeMore(int maxPages, unsigned long maxTimeMs = 0);
+  // Lay out up to maxPages more pages (maxPages <= 0 = build to completion). Returns
+  // false on error (the build is abandoned). Sets isBuildComplete() when finished.
+  bool buildSomeMore(int maxPages);
   bool isBuilding() const { return static_cast<bool>(build_); }
   bool isBuildComplete() const { return buildComplete_; }
-  void setKnownTotalPages(uint16_t totalPages) { knownTotalPages_ = totalPages; }
-  bool hasExactTotalPages() const {
-    return knownTotalPages_.has_value() || (!partial_ && !build_ && (buildComplete_ || pageCount > 0));
-  }
-  // Best-known total page count: the exact pageCount once finalized or counted via CountOnly,
-  // or a smoothed byte-based estimate while a giant spine is still building.
+  // Best-known total page count: the exact pageCount once finalized, or a smoothed byte-based
+  // estimate (pages so far scaled by totalBytes/bytesConsumed, damped by an EMA) while a giant spine
+  // is still building, so "page X of Y" / progress don't read off the small build watermark.
   uint16_t estimatedTotalPages() const;
-  // Fast zero-SD-write CountOnly pass that computes and caches the exact page count for spineIndex.
-  static std::optional<uint16_t> trySyncCachedPageCountFromSectionFile(const std::shared_ptr<Epub>& epub,
-                                                                       int spineIndex, const ReaderRenderSpec& spec,
-                                                                       bool flushToDisk = false);
-  static std::optional<uint16_t> countSectionPages(const std::shared_ptr<Epub>& epub, int spineIndex,
-                                                   GfxRenderer& renderer, const ReaderRenderSpec& spec,
-                                                   const std::function<void()>& popupFn = nullptr,
-                                                   bool flushToDisk = true);
   void abandonBuild();
   // Persist an in-progress build as a partial section file (version sentinel + LUTs +
   // watermark trailer) instead of discarding it, so the next open of this spine can show

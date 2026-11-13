@@ -16,14 +16,16 @@
 // highlight mode, sets the selection anchor / end) directly.
 class DictionaryWordSelectActivity final : public Activity {
  public:
-  DictionaryWordSelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::shared_ptr<Page> page, bool isWikiLookup,
-                               int readerFontId, int marginLeft, int marginTop, bool highlightPhraseMode = false)
+  DictionaryWordSelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::shared_ptr<Page> page,
+                               int readerFontId, int marginLeft, int marginTop, bool highlightPhraseMode = false,
+                               bool isWikiLookup = false)
       : Activity("DictionaryWordSelect", renderer, mappedInput),
         page(std::move(page)),
         readerFontId(readerFontId),
         marginLeft(marginLeft),
         marginTop(marginTop),
-        highlightPhraseMode(highlightPhraseMode), isWikiLookup_(isWikiLookup) {}
+        highlightPhraseMode(highlightPhraseMode),
+        isWikiLookup_(isWikiLookup) {}
 
   void onEnter() override;
   void onExit() override;
@@ -75,7 +77,7 @@ class DictionaryWordSelectActivity final : public Activity {
   int currentWordInRow = 0;
   int anchorWordIndex = -1;
   bool highlightPhraseMode = false;
-  bool isWikiLookup_;
+  bool isWikiLookup_ = false;  // Offline Wikipedia: selected word opens the wiki search
   SelectionRegionCache selectionRegions[MAX_SELECTION_REGIONS];
   size_t selectionRegionCount = 0;
 

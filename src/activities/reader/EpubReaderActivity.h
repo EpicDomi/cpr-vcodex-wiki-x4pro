@@ -165,70 +165,23 @@ class EpubReaderActivity final : public Activity {
   uint16_t buildViewportHeight = 0;
   bool buildHeapPaused = false;
   bool partialRebuildStartFailed = false;
-  bool backgroundBuildYieldForInput = false;
-  std::unique_ptr<Section> backgroundSiblingSection = nullptr;
-  int backgroundSiblingSpineIndex = -1;
-  bool backgroundSiblingIsLookahead = false;
-  int logicalCountFailedSpine = -1;
-  mutable int lookaheadVerifiedThroughSpine = -1;
-  ReaderRenderSpec lookaheadVerifiedSpec{};
-  int lookaheadFailedSpine = -1;
-  unsigned long lastUserActivityMs = 0UL;
-  mutable int cachedChapterTitleSpine = -1;
-  mutable std::string cachedDirectChapterTitle;
-  mutable std::string cachedEffectiveChapterTitle;
-
-  struct LogicalChapterProgress {
-    int startSpine = 0;
-    int endSpine = 0;
-    int currentPage = 1;
-    int totalPages = 1;
-    bool isApproximate = false;
-    float bookProgress = 0.0f;
-  };
 
   static constexpr int BUILD_PAGES_PER_CHUNK = 8;
-  static constexpr int INTERACTIVE_BUILD_PAGES_PER_CHUNK = 1;
-  static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 4;
-  static constexpr int LOOKAHEAD_BUILD_PAGES_PER_TICK = 1;
+  static constexpr int BACKGROUND_BUILD_PAGES_PER_TICK = 2;
   static constexpr int BUILD_WINDOW_AHEAD = 5;
   static constexpr int PARTIAL_REBUILD_START_MARGIN = 15;
-  static constexpr int MAX_BACKGROUND_COUNT_PAGES = 4096;
-  static constexpr int MAX_LOOKAHEAD_SPINES = 2;
-  static constexpr unsigned long SIBLING_COUNT_IDLE_DELAY_MS = 150;
-  static constexpr unsigned long LOOKAHEAD_IDLE_DELAY_MS = 2500;
-  static constexpr unsigned long COUNTING_SLICE_BUDGET_MS = 15;
-  static constexpr unsigned long LOOKAHEAD_SLICE_BUDGET_MS = 15;
-  static constexpr unsigned long COUNTING_BLINK_INTERVAL_MS = 600;
   static constexpr size_t BACKGROUND_BUILD_MIN_FREE_HEAP = 32 * 1024;
   static constexpr size_t BACKGROUND_BUILD_MIN_MAX_ALLOC = 16 * 1024;
   static constexpr size_t RENDER_MIN_FREE_HEAP = 24 * 1024;
-  bool countingIndicatorBlinkOff = false;
-  bool countingBlinkAsyncPending = false;
-  unsigned long lastCountingBlinkMs = 0UL;
 
   void renderContents(std::shared_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void drawTextHighlights(const Page& page, int orientedMarginTop, int orientedMarginLeft) const;
   void renderStatusBar() const;
-  void refreshStatusBarInPlace();
-  void tickCountingStatusBarBlink();
-  void syncPendingCountingBlink();
-  void restoreCurrentPageBuffer();
-  void resetBackgroundSiblingBuild(bool abandonIfLookahead = true);
-  bool isSettledForSiblingCount() const;
-  bool isSettledForLookahead() const;
-  int nextUncachedLookaheadSpine() const;
-  int nextUncountedLogicalSiblingSpine() const;
-  bool sectionBuildWantsTick() const;
   void renderSectionLoadFailure();
   void renderEndOfBook();
   ReaderRenderSpec makeRenderSpec(uint16_t viewportWidth, uint16_t viewportHeight) const;
-  void ensureChapterTitlesCached(int spineIndex) const;
-  void ensureLogicalChapterPageCounts(const ReaderRenderSpec& spec, bool allowDeferred = true,
-                                      bool* ioPopupShown = nullptr);
-  LogicalChapterProgress getLogicalChapterProgress() const;
-  bool buildTickHeapGate(bool allowFontCacheRelease = true);
+  bool buildTickHeapGate();
   bool applyDeferredReposition();
   void clearDeferredReposition();
   // Remember the current page's content offset (plus the page-count ratio) so a
@@ -317,7 +270,8 @@ class EpubReaderActivity final : public Activity {
   void loop() override;
   void render(RenderLock&& lock) override;
   bool skipLoopDelay() override {
-    return !RenderLock::peek() && !buildHeapPaused && !backgroundBuildYieldForInput && sectionBuildWantsTick();
+    return section && section->isBuilding() && !buildHeapPaused &&
+           (section->isPartial() || static_cast<int>(section->pageCount) < section->currentPage + BUILD_WINDOW_AHEAD);
   }
   bool isReaderActivity() const override { return true; }
   bool handleForcedRefresh() override {

@@ -5,11 +5,8 @@
 #include <deque>
 #include <string>
 
-class FontCacheManager;
-
 class GfxRenderer {
  public:
-  FontCacheManager* getFontCacheManager() const { return nullptr; }
   int getScreenWidth() const { return 480; }
   int getScreenHeight() const { return 800; }
   int getLineHeight(int, float = 1.0f) const { return 16; }

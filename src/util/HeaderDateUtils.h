@@ -1,7 +1,6 @@
 #pragma once
 
 #include <string>
-#include <cstdint>
 
 class GfxRenderer;
 
@@ -10,7 +9,6 @@ namespace HeaderDateUtils {
 struct DisplayDateInfo {
   uint32_t timestamp = 0;
   bool usedFallback = false;
-  DisplayDateInfo(uint32_t t=0, bool u=false) : timestamp(t), usedFallback(u) {}
 };
 
 DisplayDateInfo getDisplayDateInfo();

@@ -285,7 +285,7 @@ int pngDrawCallback(PNGDRAW* pDraw) {
       if (outX < screenWidth) {
         const uint8_t alpha = ctx->alphaLineBuffer ? ctx->alphaLineBuffer[srcX] : 255;
         if (alpha >= 8 && alpha > alphaThreshold4x4(outX, outY)) {
-          uint8_t gray = compensateEinkImageTone(ctx->grayLineBuffer[srcX]);
+          uint8_t gray = ctx->grayLineBuffer[srcX];
 
           uint8_t ditheredGray;
           if (useDithering) {

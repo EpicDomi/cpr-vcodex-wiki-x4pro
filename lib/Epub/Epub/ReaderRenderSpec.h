@@ -1,10 +1,6 @@
 #pragma once
 #include <cstdint>
 
-// Shared section layout cache format version. Incrementing this invalidates
-// both per-spine section .bin caches and per-book page_counts.bin caches.
-constexpr uint8_t kSectionFileVersion = 49;
-
 // The resolved text-rendering configuration a reader hands to the layout
 // engine. Section-cache validation keys on every field: a section file built
 // with a different spec is discarded and rebuilt.
@@ -26,15 +22,4 @@ struct ReaderRenderSpec {
   bool embeddedStyle = true;
   uint8_t imageRendering = 0;
   bool focusReadingEnabled = false;
-
-  bool operator==(const ReaderRenderSpec& other) const {
-    return fontId == other.fontId && lineCompression == other.lineCompression &&
-           extraParagraphSpacing == other.extraParagraphSpacing &&
-           forceParagraphIndents == other.forceParagraphIndents && paragraphAlignment == other.paragraphAlignment &&
-           viewportWidth == other.viewportWidth && viewportHeight == other.viewportHeight &&
-           hyphenationEnabled == other.hyphenationEnabled && embeddedStyle == other.embeddedStyle &&
-           imageRendering == other.imageRendering && focusReadingEnabled == other.focusReadingEnabled;
-  }
-
-  bool operator!=(const ReaderRenderSpec& other) const { return !(*this == other); }
 };

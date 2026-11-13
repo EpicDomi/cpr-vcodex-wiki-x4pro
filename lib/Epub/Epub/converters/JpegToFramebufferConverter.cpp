@@ -199,7 +199,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
       const uint8_t* row = &pixels[(dstY - blockY) * stride];
       for (int dstX = dstXStart; dstX < dstXEnd; dstX++) {
         const int outX = cfgX + dstX;
-        uint8_t gray = compensateEinkImageTone(row[dstX - blockX]);
+        uint8_t gray = row[dstX - blockX];
         uint8_t dithered;
         if (useDithering) {
           dithered = applyBayerDither4Level(gray, outX, outY);
@@ -257,7 +257,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
         int top = ((int)row0[lx0] * fxInv + (int)row0[lx1] * fx) >> FP_SHIFT;
         int bot = ((int)row1[lx0] * fxInv + (int)row1[lx1] * fx) >> FP_SHIFT;
-        uint8_t gray = compensateEinkImageTone((uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT));
+        uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
 
         uint8_t dithered;
         if (useDithering) {
@@ -280,7 +280,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
         int top = ((int)row0[lx0] * fxInv + (int)row0[lx0 + 1] * fx) >> FP_SHIFT;
         int bot = ((int)row1[lx0] * fxInv + (int)row1[lx0 + 1] * fx) >> FP_SHIFT;
-        uint8_t gray = compensateEinkImageTone((uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT));
+        uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
 
         uint8_t dithered;
         if (useDithering) {
@@ -306,7 +306,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
 
         int top = ((int)row0[lx0] * fxInv + (int)row0[lx1] * fx) >> FP_SHIFT;
         int bot = ((int)row1[lx0] * fxInv + (int)row1[lx1] * fx) >> FP_SHIFT;
-        uint8_t gray = compensateEinkImageTone((uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT));
+        uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
 
         uint8_t dithered;
         if (useDithering) {
@@ -339,7 +339,7 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
       int lx = (srcFxFP >> FP_SHIFT) - blockX;
       if (lx < 0) lx = 0;
       if (lx >= validW) lx = validW - 1;
-      uint8_t gray = compensateEinkImageTone(row[lx]);
+      uint8_t gray = row[lx];
 
       uint8_t dithered;
       if (useDithering) {

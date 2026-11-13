@@ -18,7 +18,7 @@ constexpr uint16_t PXC_MAGIC = 0x5850;  // 'P','X'; not a plausible panel width
 // Bump whenever cache quantization changes (tone curve, thresholds, dither
 // matrix, or adaptive calibration). Version 1 corresponds to the proportional
 // four-level Bayer calibration introduced in CPR-vCodex 1.6.0.32.
-constexpr uint8_t PXC_VERSION = 2;
+constexpr uint8_t PXC_VERSION = 1;
 constexpr size_t PXC_HEADER_BYTES = 8;
 
 // Kept in the format from day one so a future factory/absolute grayscale path

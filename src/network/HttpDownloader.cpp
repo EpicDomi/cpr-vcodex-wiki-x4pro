@@ -88,8 +88,7 @@ HttpDownloader::DownloadError runOtaGetCompat(const std::string& url, Sink& sink
   NetworkClientSecure tls;
   tls.setInsecure();
   HTTPClient http;
-  http.begin(tls, url.c_str());
-  if (false) {
+  if (!http.begin(tls, url.c_str())) {
     LOG_ERR("HTTP", "OTA begin failed: %s", url.c_str());
     return HttpDownloader::HTTP_ERROR;
   }

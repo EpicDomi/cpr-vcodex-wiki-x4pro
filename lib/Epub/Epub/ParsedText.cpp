@@ -693,9 +693,14 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
   }
   return 0;
 }
-std::vector<size_t> ParsedText::computeParagraphLineBreaks(const GfxRenderer& renderer, const int fontId,
-                                                           const uint16_t viewportWidth,
-                                                           std::vector<uint16_t>& outWordWidths) {
+// Consumes data to minimize memory usage
+void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
+                                       const std::function<void(std::shared_ptr<TextBlock>, uint32_t)>& processLine,
+                                       const bool includeLastLine) {
+  if (words.empty()) {
+    return;
+  }
+
   // Per-paragraph RTL auto-detection: only when CSS/HTML didn't explicitly set direction.
   // Explicit dir="ltr" must be respected and not overridden by content heuristic.
   if (!blockStyle.directionDefined && hasRtlWord) {
@@ -731,49 +736,17 @@ std::vector<size_t> ParsedText::computeParagraphLineBreaks(const GfxRenderer& re
   }
 
   const int pageWidth = viewportWidth;
-  outWordWidths = calculateWordWidths(renderer, fontId);
+  auto wordWidths = calculateWordWidths(renderer, fontId);
 
+  std::vector<size_t> lineBreakIndices;
   if (hyphenationEnabled) {
     // Use greedy layout that can split words mid-loop when a hyphenated prefix fits.
-    return computeHyphenatedLineBreaks(renderer, fontId, pageWidth, outWordWidths, wordContinues, wordNoSpaceBefore);
-  }
-  return computeLineBreaks(renderer, fontId, pageWidth, outWordWidths, wordContinues, wordNoSpaceBefore);
-}
-
-void ParsedText::consumeLaidOutWords(const size_t consumed) {
-  if (consumed == 0) {
-    return;
-  }
-  firstLineIndentPending = false;
-  words.erase(words.begin(), words.begin() + consumed);
-  wordStyles.erase(wordStyles.begin(), wordStyles.begin() + consumed);
-  wordContinues.erase(wordContinues.begin(), wordContinues.begin() + consumed);
-  wordNoSpaceBefore.erase(wordNoSpaceBefore.begin(), wordNoSpaceBefore.begin() + consumed);
-  wordFocusBoundary.erase(wordFocusBoundary.begin(), wordFocusBoundary.begin() + consumed);
-  wordLinkIds.erase(wordLinkIds.begin(), wordLinkIds.begin() + consumed);
-  wordLayoutFlags.erase(wordLayoutFlags.begin(), wordLayoutFlags.begin() + consumed);
-  eraseVisibleOffsetPrefix(consumed);
-  if (!rubyTexts.empty()) {
-    const size_t rtConsumed = std::min(consumed, rubyTexts.size());
-    rubyTexts.erase(rubyTexts.begin(), rubyTexts.begin() + rtConsumed);
-  }
-}
-
-// Consumes data to minimize memory usage
-void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
-                                       const std::function<void(std::shared_ptr<TextBlock>, uint32_t)>& processLine,
-                                       const bool includeLastLine) {
-  if (words.empty()) {
-    return;
-  }
-
-  std::vector<uint16_t> wordWidths;
-  const auto lineBreakIndices = computeParagraphLineBreaks(renderer, fontId, viewportWidth, wordWidths);
-  if (lineBreakIndices.empty()) {
-    return;
+    lineBreakIndices =
+        computeHyphenatedLineBreaks(renderer, fontId, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore);
+  } else {
+    lineBreakIndices = computeLineBreaks(renderer, fontId, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore);
   }
   const size_t lineCount = includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1;
-  const int pageWidth = viewportWidth;
 
   for (size_t i = 0; i < lineCount; ++i) {
     extractLine(i, pageWidth, wordWidths, wordContinues, wordNoSpaceBefore, lineBreakIndices, processLine, renderer,
@@ -782,47 +755,20 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 
   // Remove consumed words so size() reflects only remaining words
   if (lineCount > 0) {
-    consumeLaidOutWords(lineBreakIndices[lineCount - 1]);
-  }
-}
-
-void ParsedText::layoutAndCountLines(
-    const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
-    const std::function<void(uint16_t lineWordCount, bool hasRuby, uint32_t visibleOffset)>& processLineMetrics,
-    const bool includeLastLine) {
-  if (words.empty()) {
-    return;
-  }
-
-  std::vector<uint16_t> wordWidths;
-  const auto lineBreakIndices = computeParagraphLineBreaks(renderer, fontId, viewportWidth, wordWidths);
-  if (lineBreakIndices.empty()) {
-    return;
-  }
-  const size_t lineCount = includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1;
-
-  for (size_t i = 0; i < lineCount; ++i) {
-    const size_t lineBreak = lineBreakIndices[i];
-    const size_t lastBreakAt = i > 0 ? lineBreakIndices[i - 1] : 0;
-    const uint16_t lineWordCount = static_cast<uint16_t>(lineBreak - lastBreakAt);
-    const uint32_t lineVisibleOffset = visibleOffsetAt(lastBreakAt);
-
-    bool hasRuby = false;
-    if (!rubyTexts.empty() && lastBreakAt < rubyTexts.size()) {
-      const size_t endIdx = std::min(lineBreak, rubyTexts.size());
-      for (size_t k = lastBreakAt; k < endIdx; ++k) {
-        if (!rubyTexts[k].empty()) {
-          hasRuby = true;
-          break;
-        }
-      }
+    firstLineIndentPending = false;
+    const size_t consumed = lineBreakIndices[lineCount - 1];
+    words.erase(words.begin(), words.begin() + consumed);
+    wordStyles.erase(wordStyles.begin(), wordStyles.begin() + consumed);
+    wordContinues.erase(wordContinues.begin(), wordContinues.begin() + consumed);
+    wordNoSpaceBefore.erase(wordNoSpaceBefore.begin(), wordNoSpaceBefore.begin() + consumed);
+    wordFocusBoundary.erase(wordFocusBoundary.begin(), wordFocusBoundary.begin() + consumed);
+    wordLinkIds.erase(wordLinkIds.begin(), wordLinkIds.begin() + consumed);
+    wordLayoutFlags.erase(wordLayoutFlags.begin(), wordLayoutFlags.begin() + consumed);
+    eraseVisibleOffsetPrefix(consumed);
+    if (!rubyTexts.empty()) {
+      const size_t rtConsumed = std::min(consumed, rubyTexts.size());
+      rubyTexts.erase(rubyTexts.begin(), rubyTexts.begin() + rtConsumed);
     }
-
-    processLineMetrics(lineWordCount, hasRuby, lineVisibleOffset);
-  }
-
-  if (lineCount > 0) {
-    consumeLaidOutWords(lineBreakIndices[lineCount - 1]);
   }
 }
 
