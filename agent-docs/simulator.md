@@ -121,6 +121,14 @@ Notes:
   not the Apps list.
 - The simulator checks screens and input routing only. It says nothing about
   SD timing, the storage lock, task stacks, or e-ink refresh on the device.
+- Clock hazard: the firmware calls `settimeofday()` (RTC bridge in
+  `TimeUtils::applySystemClockFromRtc`, manual date, NTP). In the simulator that
+  is the HOST clock, and as root it succeeds. With `clockHasBeenSynced` set, or
+  under `faketime`, a run will change the machine's real time. Run date/clock
+  experiments as an unprivileged user (the call then fails) or behind a shim
+  that intercepts `settimeofday`, and check `date -u` against a trusted source
+  afterwards. Plain `faketime` runs with default settings (clock never synced)
+  do not set the clock and are safe for day-rollover checks.
 
 ## When the simulator stops compiling
 
