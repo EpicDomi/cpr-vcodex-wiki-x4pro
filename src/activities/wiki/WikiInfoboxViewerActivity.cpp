@@ -940,8 +940,61 @@ void WikiInfoboxViewerActivity::loop() {
         }
     };
 
+    // Touch (Xteink X4 Pro has no Left/Right/Confirm keys): tap a link to follow it, tap the
+    // header to close, tap the left/right half or swipe vertically to scroll a page.
+    bool touchScrollUp = false;
+    bool touchScrollDown = false;
+    {
+        int tapX = 0;
+        int tapY = 0;
+        if (mappedInput.wasScreenTapped(tapX, tapY)) {
+            const auto& touchMetrics = UITheme::getInstance().getMetrics();
+            const int headerH = touchMetrics.topPadding + touchMetrics.headerHeight;
+            if (tapY < headerH) {
+                finish();
+                return;
+            }
+            const int renderStartY = headerH + 8;
+            if (tapY >= renderStartY && tapY < renderStartY + viewHeight_) {
+                static constexpr int LINK_TAP_PAD_X = 6;
+                static constexpr int LINK_TAP_PAD_Y = 8;
+                const int contentY = tapY - renderStartY + scrollY_;
+                for (int li = 0; li < static_cast<int>(links_.size()); ++li) {
+                    const auto& lnk = links_[li];
+                    for (uint16_t ri = 0; ri < lnk.rectCount; ++ri) {
+                        const size_t rectIdx = static_cast<size_t>(lnk.rectStartIdx) + ri;
+                        if (rectIdx >= linkRects_.size()) break;
+                        const auto& rect = linkRects_[rectIdx];
+                        if (tapX >= rect.x - LINK_TAP_PAD_X && tapX < rect.x + rect.w + LINK_TAP_PAD_X &&
+                            contentY >= rect.y - LINK_TAP_PAD_Y && contentY < rect.y + rect.h + LINK_TAP_PAD_Y) {
+                            std::string target = hrefPool_.substr(lnk.hrefOffset, lnk.hrefLen);
+                            ActivityResult result;
+                            result.isCancelled = false;
+                            result.data = FilePathResult{std::move(target)};
+                            setResult(std::move(result));
+                            finish();
+                            return;
+                        }
+                    }
+                }
+            }
+            if (tapX < renderer.getScreenWidth() / 2) {
+                touchScrollUp = true;
+            } else {
+                touchScrollDown = true;
+            }
+        } else {
+            const auto swipe = mappedInput.wasSwipe();
+            if (swipe == MappedInputManager::SwipeDir::Up) {
+                touchScrollDown = true;
+            } else if (swipe == MappedInputManager::SwipeDir::Down) {
+                touchScrollUp = true;
+            }
+        }
+    }
+
     // Side buttons (Up / Down): scroll up and down the infobox (advancing across stages at boundaries)
-    if (mappedInput.wasPressed(MappedInputManager::Button::Down)) {
+    if (touchScrollDown || mappedInput.wasPressed(MappedInputManager::Button::Down)) {
         if (scrollY_ < maxScrollY_) {
             int pageStep = std::max(40, viewHeight_ - 40);
             scrollY_ = std::min(maxScrollY_, scrollY_ + pageStep);
@@ -959,7 +1012,7 @@ void WikiInfoboxViewerActivity::loop() {
         return;
     }
 
-    if (mappedInput.wasPressed(MappedInputManager::Button::Up)) {
+    if (touchScrollUp || mappedInput.wasPressed(MappedInputManager::Button::Up)) {
         if (scrollY_ > 0) {
             int pageStep = std::max(40, viewHeight_ - 40);
             scrollY_ = std::max(0, scrollY_ - pageStep);
