@@ -1,9 +1,13 @@
 #include "WikiShared.h"
 
+#ifdef ESP_PLATFORM
 #include <FS.h>
 #define File fs::File
 #include <JPEGDEC.h>
 #undef File
+#else
+#include <JPEGDEC.h>
+#endif
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -589,6 +593,15 @@ int myDraw(JPEGDRAW* pDraw) {
 }
 }  // namespace
 
+// The desktop simulator's JPEGDEC stand-in only opens files by name; it has no streaming
+// open(), so wiki images are skipped there (text, links and layout still work).
+#ifdef ESP_PLATFORM
+#define WIKI_JPEG_OPEN(jpeg, state) \
+  (jpeg)->open(static_cast<void*>(state), 0x7FFFFFFF, myClose, myRead, mySeek, myDraw)
+#else
+#define WIKI_JPEG_OPEN(jpeg, state) 0
+#endif
+
 bool getDimensions(SdRawReader& reader, uint32_t startSector, uint32_t offsetInSector, int& outWidth, int& outHeight) {
   outWidth = 0;
   outHeight = 0;
@@ -605,7 +618,7 @@ bool getDimensions(SdRawReader& reader, uint32_t startSector, uint32_t offsetInS
   state.reader = &reader;
   state.startSector = startSector;
   state.startOffsetInSector = offsetInSector;
-  if (jpeg->open(static_cast<void*>(&state), 0x7FFFFFFF, myClose, myRead, mySeek, myDraw)) {
+  if (WIKI_JPEG_OPEN(jpeg, &state)) {
     outWidth = jpeg->getWidth();
     outHeight = jpeg->getHeight();
     jpeg->close();
@@ -636,7 +649,7 @@ bool render(GfxRenderer& renderer, SdRawReader& reader, uint32_t startSector, ui
   state.clipMinY = clipMinY;
   state.clipMaxY = clipMaxY;
 
-  if (!jpeg->open(static_cast<void*>(&state), 0x7FFFFFFF, myClose, myRead, mySeek, myDraw)) {
+  if (!WIKI_JPEG_OPEN(jpeg, &state)) {
     return false;
   }
 
