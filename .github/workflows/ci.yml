@@ -160,8 +160,14 @@ jobs:
           restore-keys: pio-${{ runner.os }}-
 
       - name: Build ${{ matrix.env }} firmware
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
+          # Release-candidate builds show "<version>-rc+<hash>" in Settings.
+          # scripts/git_branch.py takes the hash from CROSSPOINT_RC_HASH and
+          # falls back to "unknown", which makes builds impossible to tell apart.
+          export CROSSPOINT_RC_HASH="${HEAD_SHA:0:7}"
           pio run -e ${{ matrix.env }} | tee pio.log
 
       - name: Extract firmware stats
