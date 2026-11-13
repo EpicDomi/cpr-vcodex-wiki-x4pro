@@ -119,9 +119,12 @@ Per-env budget:
 
 GitHub Actions:
 
-- `.github/workflows/ci.yml` runs formatting, `cppcheck`, unit tests, and both
-  hardware builds. The X4 Pro build is compile-only; only the C3 artifact is
-  uploaded.
+- `.github/workflows/ci.yml` runs formatting, `cppcheck`, unit tests, and the
+  hardware builds (`default`, `x4pro`, `x4pro-gh_release_rc`). In this fork it
+  runs on `main`, on pull requests, and manually (`workflow_dispatch`), and
+  uploads the X4 Pro binaries as one-day CI artifacts for the owner's own
+  device (see "Fork Notes" in `AGENTS.md`). Upstream uploads only the C3
+  artifact.
 - `.github/workflows/release.yml` runs on `*-cpr-vcodex` tags, builds
   `gh_release`, writes its budget report, validates its artifact pair, and
   uploads four C3 assets.

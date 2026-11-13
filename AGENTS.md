@@ -50,6 +50,33 @@ skill from `.agents/skills/`; for deeper project details, read the linked
   published GitHub release asset, not from an arbitrary local build. Auto
   Flash must default to X4 and reject X4 Pro regardless of stale metadata.
 
+## Fork Notes (Offline Wikipedia, X4 Pro)
+
+This repository is a personal fork: CPR-vCodex plus Metske's offline Wikipedia
+reader (`src/activities/wiki/`), maintained for an Xteink X4 Pro. Where these
+notes differ from the upstream rules above, these notes win for this fork.
+
+- Default branch is `main`. Upstream is `franssjz/cpr-vcodex` (`master`); the
+  wiki code comes from `Metske/cpr-vcodex-wiki` (`main`), which is a snapshot of
+  upstream commit `a4ae01a` (just after `1.6.0.38-cpr-vcodex`) with no shared
+  git history.
+- Keep the wiki isolated: wiki code lives in `src/activities/wiki/`, and hooks
+  into upstream files stay as small as possible so upstream merges stay easy.
+  Metske's non-wiki changes (EPUB exact page counts, image tone curves, build
+  workarounds) were deliberately removed; do not re-import them with wiki
+  updates. `src/activities/wiki/` keeps Metske's formatting and is excluded from
+  the CI clang-format check.
+- `ci.yml` uploads X4 Pro binaries as CI artifacts with one-day retention for
+  the owner's USB-recoverable device. Do not attach X4 Pro binaries to releases,
+  Pages, or the auto-flash manifest without an explicit request from the owner
+  and a prominent warning about USB-locked units (upstream issue #212).
+- Flash X4 Pro test builds as the app image only (offset `0x10000`,
+  `partitions_x4pro.csv` unchanged). Never ask for a bootloader or partition
+  table flash without explaining why and how to recover.
+- The wiki reads the `.img` archive through raw SD sectors
+  (`SdRawReader`) under `HalStorage::RawAccessLock`. The `.img` layout (`CPR1`
+  footer, 32 KB gzip clusters) must stay compatible with `xt-zim-imager`.
+
 ## Quick Commands
 
 ```powershell

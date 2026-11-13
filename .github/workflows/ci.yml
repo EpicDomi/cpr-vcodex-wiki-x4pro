@@ -1,8 +1,9 @@
 name: CI (build)
 
 on:
+  workflow_dispatch:
   push:
-    branches: [master]
+    branches: [main]
     paths-ignore:
       - 'docs/**'
       - 'README.md'
@@ -48,10 +49,10 @@ jobs:
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
             git fetch --depth=1 origin "${GITHUB_BASE_REF}"
             files="$(git diff --name-only --diff-filter=ACMRT "origin/${GITHUB_BASE_REF}...HEAD" -- '*.c' '*.cpp' '*.h' '*.hpp' \
-              | grep -v -E '^(lib/EpdFont/builtinFonts/|lib/Epub/Epub/hyphenation/generated/|lib/uzlib/)' || true)"
+              | grep -v -E '^(lib/EpdFont/builtinFonts/|lib/Epub/Epub/hyphenation/generated/|lib/uzlib/|src/activities/wiki/)' || true)"
           else
             files="$(git diff --name-only --diff-filter=ACMRT HEAD~1..HEAD -- '*.c' '*.cpp' '*.h' '*.hpp' \
-              | grep -v -E '^(lib/EpdFont/builtinFonts/|lib/Epub/Epub/hyphenation/generated/|lib/uzlib/)' || true)"
+              | grep -v -E '^(lib/EpdFont/builtinFonts/|lib/Epub/Epub/hyphenation/generated/|lib/uzlib/|src/activities/wiki/)' || true)"
           fi
           if [ -n "${files}" ]; then
             printf '%s\n' "${files}" | xargs -r /usr/lib/llvm-21/bin/clang-format -style=file -i
@@ -105,15 +106,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Keep compiling X4 Pro as an internal regression check, but never
-        # upload its binary while public distribution is withdrawn.
+        # Fork policy: X4 Pro binaries are uploaded only as short-lived CI
+        # artifacts for the repository owner's own (USB-recoverable) device.
+        # They are never attached to releases, Pages, or the auto-flash
+        # manifest. See AGENTS.md ("Fork Notes").
         include:
           - env: default
             asset: firmware.bin
             publish: true
+            retention: 7
           - env: x4pro
+            asset: firmware-x4pro-debug.bin
+            publish: true
+            retention: 1
+          - env: x4pro-gh_release_rc
             asset: firmware-x4pro.bin
-            publish: false
+            publish: true
+            retention: 1
     steps:
       - uses: actions/checkout@v4
         with:
@@ -178,6 +187,7 @@ jobs:
           name: ${{ matrix.asset }}
           path: .pio/build/${{ matrix.env }}/firmware.bin
           if-no-files-found: error
+          retention-days: ${{ matrix.retention }}
 
   unit-tests:
     runs-on: ubuntu-latest
