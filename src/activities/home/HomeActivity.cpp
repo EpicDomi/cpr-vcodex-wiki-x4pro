@@ -1535,8 +1535,12 @@ void HomeActivity::render(RenderLock&&) {
   // self-insets in drawHeader, so only the cover/menu need it here.
   const Rect content = UITheme::getInstance().getContentArea(renderer);
 
-  renderer.clearScreen();
   if (coverGridUi) {
+    // Clear only for the cover grid. The carousel path below reuses the frame
+    // still resident in the framebuffer when nothing changed; clearing first
+    // would leave an empty outline until the selection moves. The remaining
+    // themes clear in the !usedCarouselFrame branch.
+    renderer.clearScreen();
     coverGridUi->setSelection(selectorIndex);
     UITheme::getInstance().drawCoverGridHome(*coverGridUi);
     // Front Left/Right walk the tabs, so their hints read Left/Right; the
