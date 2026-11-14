@@ -1062,7 +1062,16 @@ void HomeActivity::loop() {
 
   // Back is otherwise unused on Home: resume the most recent book directly
   // (recentBooks is most-recent-first and already pruned of missing files).
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back) && !recentBooks.empty() &&
+  // Fork: on the carousel a left-to-right swipe over the covers or the icon
+  // strip moves that row (handleTouch); it must not double as the Back swipe.
+  bool carouselRowSwipe = false;
+  if (isLyraCarouselTheme()) {
+    int swipeX = 0;
+    int swipeY = 0;
+    carouselRowSwipe =
+        mappedInput.wasSwipeStart(swipeX, swipeY) && swipeY >= UITheme::getInstance().getMetrics().homeTopPadding;
+  }
+  if (!carouselRowSwipe && mappedInput.wasReleased(MappedInputManager::Button::Back) && !recentBooks.empty() &&
       mappedInput.getHeldTime() < RECENT_BOOK_LONG_PRESS_MS) {
     onSelectBook(recentBooks[0].path);
     return;

@@ -88,6 +88,8 @@ class MappedInputManager {
   RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0) const;
 
   SwipeDir wasSwipe() const;
+  // Fork: reader side-button actions; defined in src/fork/ReaderSideButtons.cpp.
+  void applyReaderSideButtons() const;
   // Fork: logical start point of this pass's swipe; false when there was none.
   bool wasSwipeStart(int& x, int& y) const;
   // Back = left-to-right swipe anchored at the left edge. Public so swipe-mode

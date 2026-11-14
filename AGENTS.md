@@ -82,11 +82,23 @@ notes differ from the upstream rules above, these notes win for this fork.
   again with one-line hooks in upstream files (each marked `Fork:`):
   - Reader light controls (`src/fork/ReaderLightControls`): in a book, a
     vertical slide along the left screen edge sets brightness and along the
-    right edge sets warmth; optionally the previous-page side button toggles
-    the light. Hooks: the three reader `loop()`s and
-    `ReaderUtils::detectPageTurn`. Settings `readerEdgeLightSlide`,
-    `prevPageButtonLight` (Controls, X4 Pro only). The slide idea and scale
-    follow CrossInk (`uxjulia/crossink`, MIT).
+    right edge sets warmth. Hooks: the three reader `loop()`s. Setting
+    `readerEdgeLightSlide`. The slide idea and scale follow CrossInk
+    (`uxjulia/crossink`, MIT).
+  - Reader side-button actions (`src/fork/ReaderSideButtons`,
+    `src/fork/SideButtonSettingsActivity`): tap, double-tap and long-press
+    actions for the left (`BTN_UP`) and right (`BTN_DOWN`) side buttons while
+    a book page is on screen, modelled on the Home button gestures. Non-page
+    actions are injected into the Home-key action channel by
+    `MappedInputManager::applyReaderSideButtons()`, which `main.cpp` calls
+    right after `update()`; it is deliberately not inside `update()`, which
+    `test/button_press_navigation` extracts. Page actions come back through
+    `ReaderUtils::detectPageTurn`. With every row on Default the module is
+    inert and the stock mapping runs. Settings `side{Left,Right}{Tap,
+    DoubleTap,LongPress}Action`.
+  - On the carousel home a horizontal swipe that starts on the covers or the
+    icon strip is never treated as the Back swipe (stock Home maps Back to
+    "resume the latest book").
   - Timing log (`lib/PerfLog`, `src/fork/PerfLogWriter`): with the System
     setting `timingLog` on, input, activity enter/exit, render and panel
     refresh times are appended to `/.crosspoint/cpr-vcodex-logs/timing.log`

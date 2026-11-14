@@ -3,10 +3,12 @@
 #include <PerfLog.h>
 
 #include "ActivityManager.h"
+#include "fork/ReaderSideButtons.h"
 
 void Activity::onEnter() {
   LOG_DBG("ACT", "Entering activity: %s", name.c_str());
   perflog::markNamed("enter:", name.c_str());
+  readersidebuttons::deactivate();  // Fork: a new screen ends the reader's page view
 }
 
 void Activity::onExit() {

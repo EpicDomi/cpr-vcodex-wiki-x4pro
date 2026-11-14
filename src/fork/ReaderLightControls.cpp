@@ -181,15 +181,4 @@ bool handleEdgeSlide(const MappedInputManager& input, const GfxRenderer& rendere
   return true;
 }
 
-bool prevPageButtonTogglesLight() { return SETTINGS.prevPageButtonLight != 0 && Frontlight.present(); }
-
-void toggleLight() {
-  if (!Frontlight.present()) return;
-  const bool lightOn = !Frontlight.isOn();
-  Frontlight.setOn(lightOn);
-  SETTINGS.frontlightOn = lightOn ? 1 : 0;
-  SETTINGS.saveToFile();
-  LOG_INF("LIGHT", "Frontlight toggled %s", lightOn ? "on" : "off");
-}
-
 }  // namespace readerlight

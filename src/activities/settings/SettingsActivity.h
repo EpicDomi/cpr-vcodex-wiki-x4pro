@@ -53,6 +53,7 @@ enum class SettingAction {
   SleepApp,
   IfFound,
   HomeButton,
+  SideButtons,  // Fork: src/fork/SideButtonSettingsActivity
   About,
 };
 

@@ -13,9 +13,4 @@ namespace readerlight {
 // the reader must skip the rest of its input handling for this pass.
 bool handleEdgeSlide(const MappedInputManager& input, const GfxRenderer& renderer);
 
-// True when the previous-page side button is set to toggle the light instead.
-bool prevPageButtonTogglesLight();
-
-void toggleLight();
-
 }  // namespace readerlight

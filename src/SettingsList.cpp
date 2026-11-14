@@ -13,6 +13,7 @@
 #include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
 #include "ReaderFontSizes.h"
+#include "fork/ReaderSideButtons.h"
 #include "util/ShortcutRegistry.h"
 
 SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
@@ -580,8 +581,11 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
     // Fork: reader light controls (src/fork/ReaderLightControls).
     v.push_back(SettingInfo::Toggle(StrId::STR_EDGE_SLIDE_LIGHT, &CrossPointSettings::readerEdgeLightSlide,
                                     "readerEdgeLightSlide", StrId::STR_CAT_CONTROLS));
-    v.push_back(SettingInfo::Toggle(StrId::STR_PREV_BTN_LIGHT, &CrossPointSettings::prevPageButtonLight,
-                                    "prevPageButtonLight", StrId::STR_CAT_CONTROLS));
+    for (int i = 0; i < readersidebuttons::ROW_COUNT; ++i) {
+      v.push_back(SettingInfo::StaticEnum(readersidebuttons::ROW_LABELS[i], readersidebuttons::FIELDS[i],
+                                          readersidebuttons::ACTION_LABELS, readersidebuttons::KEYS[i],
+                                          StrId::STR_CAT_CONTROLS));
+    }
   }
   // Fork diagnostic (src/fork/PerfLogWriter).
   v.push_back(

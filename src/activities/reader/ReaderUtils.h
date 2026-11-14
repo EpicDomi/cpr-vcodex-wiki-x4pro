@@ -18,6 +18,7 @@
 #include "MappedInputManager.h"
 #include "activities/ActivityManager.h"
 #include "fork/ReaderLightControls.h"
+#include "fork/ReaderSideButtons.h"
 
 namespace ReaderUtils {
 
@@ -92,15 +93,21 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
     if (usePress) return input.wasPressed(button);
     return input.wasLongPressed(button, SKIP_HOLD_MS) || input.wasReleased(button);
   };
-  // Fork: the previous-page side button can be set to toggle the frontlight.
-  const bool lightButton = readerlight::prevPageButtonTogglesLight();
-  if (lightButton && input.wasReleased(MappedInputManager::Button::PageBack)) readerlight::toggleLight();
-  const bool prev = tiltPrev || (!lightButton && pageButtonTriggered(MappedInputManager::Button::PageBack)) ||
-                    pageButtonTriggered(prevButton);
+  // Fork: remapped side buttons (src/fork/ReaderSideButtons) replace the stock
+  // PageBack / PageForward mapping for this pass; otherwise it runs as before.
+  const auto sideEvents = readersidebuttons::pageEvents();
+  bool sidePrev = false;
+  bool sideNext = false;
+  if (sideEvents.handled) {
+    readersidebuttons::resolve(sideEvents, input.isNavDirectionSwapped(), sidePrev, sideNext);
+  } else {
+    sidePrev = pageButtonTriggered(MappedInputManager::Button::PageBack);
+    sideNext = pageButtonTriggered(MappedInputManager::Button::PageForward);
+  }
+  const bool prev = tiltPrev || sidePrev || pageButtonTriggered(prevButton);
   const bool powerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
                          input.wasReleased(MappedInputManager::Button::Power);
-  const bool next = input.homeButtonAction() == HomeButtonAction::NextPage || tiltNext ||
-                    pageButtonTriggered(MappedInputManager::Button::PageForward) || powerTurn ||
+  const bool next = input.homeButtonAction() == HomeButtonAction::NextPage || tiltNext || sideNext || powerTurn ||
                     pageButtonTriggered(nextButton);
   return {prev, next, tiltPrev || tiltNext};
 }

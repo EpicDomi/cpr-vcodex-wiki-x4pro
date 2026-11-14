@@ -425,8 +425,14 @@ class CrossPointSettings {
   // Fork (X4 Pro, src/fork/ReaderLightControls): in a book, slide the left
   // screen edge for brightness and the right edge for warmth.
   uint8_t readerEdgeLightSlide = 1;
-  // Fork: in a book, the previous-page side button toggles the light instead.
-  uint8_t prevPageButtonLight = 0;
+  // Fork (src/fork/ReaderSideButtons): per-gesture actions for the two side
+  // buttons in a book; 0 = Default (stock page turn / nothing on double tap).
+  uint8_t sideLeftTapAction = 0;
+  uint8_t sideLeftDoubleTapAction = 0;
+  uint8_t sideLeftLongPressAction = 0;
+  uint8_t sideRightTapAction = 0;
+  uint8_t sideRightDoubleTapAction = 0;
+  uint8_t sideRightLongPressAction = 0;
   // Fork diagnostic (src/fork/PerfLogWriter): record UI timings to the SD card.
   uint8_t timingLog = 0;
   uint8_t homeButtonTapAction = static_cast<uint8_t>(HomeButtonAction::Home);

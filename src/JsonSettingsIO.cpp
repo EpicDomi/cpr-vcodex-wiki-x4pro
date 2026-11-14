@@ -25,6 +25,7 @@
 #include "RecentBooksStore.h"
 #include "SettingsList.h"
 #include "WifiCredentialStore.h"
+#include "fork/ReaderSideButtons.h"
 #include "util/BookIdentity.h"
 #include "util/CprVcodexLogs.h"
 #include "util/ShortcutRegistry.h"
@@ -619,7 +620,14 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
   s.touchReaderControls = s.touchReaderControls != 0;
   loadToggle("doubleClickPwrLight", s.doubleClickPwrLight);
   loadToggle("readerEdgeLightSlide", s.readerEdgeLightSlide);
-  loadToggle("prevPageButtonLight", s.prevPageButtonLight);
+  for (int i = 0; i < readersidebuttons::ROW_COUNT; ++i) {
+    loadEnum(readersidebuttons::KEYS[i], s.*readersidebuttons::FIELDS[i],
+             static_cast<uint8_t>(readersidebuttons::Action::Count));
+  }
+  // The short-lived "Prev-Page Button Toggles Light" toggle became the left button's tap action.
+  if ((doc["prevPageButtonLight"] | 0) == 1 && s.sideLeftTapAction == 0) {
+    s.sideLeftTapAction = static_cast<uint8_t>(readersidebuttons::Action::ToggleFrontlight);
+  }
   loadToggle("timingLog", s.timingLog);
   loadEnum("homeButtonTapAction", s.homeButtonTapAction, static_cast<uint8_t>(HomeButtonAction::Count));
   loadEnum("homeButtonDoubleTapAction", s.homeButtonDoubleTapAction, static_cast<uint8_t>(HomeButtonAction::Count));
@@ -1116,7 +1124,9 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["paragraphIndentSpaces"] = s.paragraphIndentSpaces;
   doc["doubleClickPwrLight"] = s.doubleClickPwrLight;
   doc["readerEdgeLightSlide"] = s.readerEdgeLightSlide;
-  doc["prevPageButtonLight"] = s.prevPageButtonLight;
+  for (int i = 0; i < readersidebuttons::ROW_COUNT; ++i) {
+    doc[readersidebuttons::KEYS[i]] = s.*readersidebuttons::FIELDS[i];
+  }
   doc["timingLog"] = s.timingLog;
   doc["homeButtonTapAction"] = s.homeButtonTapAction;
   doc["homeButtonDoubleTapAction"] = s.homeButtonDoubleTapAction;

@@ -67,6 +67,7 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
+#include "fork/SideButtonSettingsActivity.h"
 #include "util/HeaderDateUtils.h"
 #include "util/ShortcutRegistry.h"
 #include "util/ShortcutUiMetadata.h"
@@ -306,13 +307,14 @@ std::vector<SettingInfo> buildControlsSettings() {
     v.push_back(SettingInfo::Enum(StrId::STR_HAPTIC_INTENSITY, &CrossPointSettings::hapticIntensity,
                                   {StrId::STR_HAPTIC_LOW, StrId::STR_HAPTIC_MEDIUM, StrId::STR_HAPTIC_HIGH}));
   }
+  // Fork: per-gesture actions for the side buttons in a book.
+  v.push_back(SettingInfo::Action(StrId::STR_SIDE_BTN_ACTIONS, SettingAction::SideButtons));
   // Fork: reader light controls (src/fork/ReaderLightControls), and the
   // double-click toggle that upstream only exposes in the web settings.
   if (Frontlight.present()) {
     if (BoardConfig::hasTouch()) {
       v.push_back(SettingInfo::Toggle(StrId::STR_EDGE_SLIDE_LIGHT, &CrossPointSettings::readerEdgeLightSlide));
     }
-    v.push_back(SettingInfo::Toggle(StrId::STR_PREV_BTN_LIGHT, &CrossPointSettings::prevPageButtonLight));
     if (BoardConfig::isX4Pro()) {
       v.push_back(SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight));
     }
@@ -975,6 +977,9 @@ void SettingsActivity::runAction(const SettingInfo& setting) {
       break;
     case SettingAction::HomeButton:
       startActivityForResult(std::make_unique<HomeButtonSettingsActivity>(renderer, mappedInput), rebuildingHandler);
+      break;
+    case SettingAction::SideButtons:  // Fork
+      startActivityForResult(std::make_unique<SideButtonSettingsActivity>(renderer, mappedInput), rebuildingHandler);
       break;
     case SettingAction::Plugins:
       activityManager.goToPlugins(false);
