@@ -7,6 +7,7 @@
 #include <HalGPIO.h>
 #include <Logging.h>
 #include <MemoryManager.h>
+#include <PerfLog.h>
 #include <SdCardFont.h>
 #include <TtfEpdFont.h>
 #include <Utf8.h>
@@ -1880,6 +1881,7 @@ void GfxRenderer::displayBuffer(HalDisplay::RefreshMode refreshMode) const {
   auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
   refreshMode = applyPromotedRefresh(refreshMode);
+  perflog::Scope perfScope("disp", static_cast<int32_t>(refreshMode));  // Fork diagnostic
   display.displayBuffer(refreshMode, fadingFix);
 }
 
@@ -1890,6 +1892,7 @@ void GfxRenderer::displayWindow(int x, int y, int width, int height) const {
   }
   const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, width, height, panelWidth, panelHeight);
   if (!mem.valid) return;
+  perflog::Scope perfScope("disp.window");
   display.displayWindow(mem.x, mem.y, mem.w, mem.h, false);
 }
 
@@ -1897,6 +1900,7 @@ void GfxRenderer::displayBufferAsync(HalDisplay::RefreshMode refreshMode) const 
   refreshMode = applyPromotedRefresh(refreshMode);
   // The async path has no turn-off-screen hook, which the sunlight fading fix
   // relies on; keep those users on the blocking path.
+  perflog::Scope perfScope("disp.async", static_cast<int32_t>(refreshMode));
   if (fadingFix) {
     display.displayBuffer(refreshMode, fadingFix);
     return;
@@ -1904,7 +1908,10 @@ void GfxRenderer::displayBufferAsync(HalDisplay::RefreshMode refreshMode) const 
   display.displayBufferAsync(refreshMode);
 }
 
-void GfxRenderer::waitRefreshComplete() const { display.waitRefreshComplete(); }
+void GfxRenderer::waitRefreshComplete() const {
+  perflog::Scope perfScope("disp.wait");
+  display.waitRefreshComplete();
+}
 
 bool GfxRenderer::supportsAsyncRefresh() const { return !fadingFix && display.supportsAsyncRefresh(); }
 
@@ -2449,11 +2456,13 @@ size_t GfxRenderer::getBufferSize() const { return frameBufferSize; }
 
 void GfxRenderer::displayGrayscaleBase(HalDisplay::RefreshMode fallback) const {
   absoluteGrayPlanes = false;
+  perflog::Scope perfScope("gray.base", static_cast<int32_t>(fallback));
   display.displayGrayscaleBase(fallback, fadingFix);
 }
 
 bool GfxRenderer::displayGrayscaleBase(HalDisplay::GrayscaleMode mode, HalDisplay::RefreshMode fallback) const {
   absoluteGrayPlanes = false;
+  perflog::Scope perfScope("gray.base", static_cast<int32_t>(fallback));
   if (!display.displayGrayscaleBase(mode, fallback, fadingFix)) return false;
   absoluteGrayPlanes = mode != HalDisplay::GrayscaleMode::Overlay;
   return true;
@@ -2484,6 +2493,7 @@ void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuff
 void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
 
 void GfxRenderer::displayGrayBuffer() const {
+  perflog::Scope perfScope("gray.show");
   display.displayGrayBuffer(fadingFix);
   absoluteGrayPlanes = false;
 }

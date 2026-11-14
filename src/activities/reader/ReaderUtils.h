@@ -17,6 +17,7 @@
 #include "HapticFeedback.h"
 #include "MappedInputManager.h"
 #include "activities/ActivityManager.h"
+#include "fork/ReaderLightControls.h"
 
 namespace ReaderUtils {
 
@@ -91,8 +92,11 @@ inline PageTurnResult detectPageTurn(const MappedInputManager& input) {
     if (usePress) return input.wasPressed(button);
     return input.wasLongPressed(button, SKIP_HOLD_MS) || input.wasReleased(button);
   };
-  const bool prev =
-      tiltPrev || (pageButtonTriggered(MappedInputManager::Button::PageBack) || pageButtonTriggered(prevButton));
+  // Fork: the previous-page side button can be set to toggle the frontlight.
+  const bool lightButton = readerlight::prevPageButtonTogglesLight();
+  if (lightButton && input.wasReleased(MappedInputManager::Button::PageBack)) readerlight::toggleLight();
+  const bool prev = tiltPrev || (!lightButton && pageButtonTriggered(MappedInputManager::Button::PageBack)) ||
+                    pageButtonTriggered(prevButton);
   const bool powerTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
                          input.wasReleased(MappedInputManager::Button::Power);
   const bool next = input.homeButtonAction() == HomeButtonAction::NextPage || tiltNext ||

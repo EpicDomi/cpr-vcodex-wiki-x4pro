@@ -422,6 +422,13 @@ class CrossPointSettings {
   // X4 Pro: double-click power toggles the frontlight. Disabling frees the
   // power button for shortPwrBtn actions without the double-click wait.
   uint8_t doubleClickPwrLight = 1;
+  // Fork (X4 Pro, src/fork/ReaderLightControls): in a book, slide the left
+  // screen edge for brightness and the right edge for warmth.
+  uint8_t readerEdgeLightSlide = 1;
+  // Fork: in a book, the previous-page side button toggles the light instead.
+  uint8_t prevPageButtonLight = 0;
+  // Fork diagnostic (src/fork/PerfLogWriter): record UI timings to the SD card.
+  uint8_t timingLog = 0;
   uint8_t homeButtonTapAction = static_cast<uint8_t>(HomeButtonAction::Home);
   uint8_t homeButtonDoubleTapAction = static_cast<uint8_t>(HomeButtonAction::ToggleFrontlight);
   uint8_t homeButtonLongPressAction = static_cast<uint8_t>(HomeButtonAction::ReaderMenu);

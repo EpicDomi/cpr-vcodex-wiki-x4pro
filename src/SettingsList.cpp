@@ -577,7 +577,15 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
   if (BoardConfig::isX4Pro()) {
     v.push_back(SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight,
                                     "doubleClickPwrLight", StrId::STR_CAT_CONTROLS));
+    // Fork: reader light controls (src/fork/ReaderLightControls).
+    v.push_back(SettingInfo::Toggle(StrId::STR_EDGE_SLIDE_LIGHT, &CrossPointSettings::readerEdgeLightSlide,
+                                    "readerEdgeLightSlide", StrId::STR_CAT_CONTROLS));
+    v.push_back(SettingInfo::Toggle(StrId::STR_PREV_BTN_LIGHT, &CrossPointSettings::prevPageButtonLight,
+                                    "prevPageButtonLight", StrId::STR_CAT_CONTROLS));
   }
+  // Fork diagnostic (src/fork/PerfLogWriter).
+  v.push_back(
+      SettingInfo::Toggle(StrId::STR_TIMING_LOG, &CrossPointSettings::timingLog, "timingLog", StrId::STR_CAT_SYSTEM));
   if (registry && registry->getFamilyCount() > 0) {
     auto it = std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_FONT_FAMILY; });
     if (it != v.end()) {

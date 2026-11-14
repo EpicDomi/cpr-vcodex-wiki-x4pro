@@ -16,6 +16,7 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <PerfLog.h>
 #include <SPI.h>
 #include <TrustedTime.h>
 #include <VectorFontSupport.h>
@@ -53,6 +54,7 @@
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "fork/PerfLogWriter.h"
 #include "network/KOReaderSyncRecovery.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/BootRecovery.h"
@@ -1110,6 +1112,7 @@ void loop() {
       activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
+    if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || gpio.wasTouchActivity()) perflog::markInput();
   }
 
   // Let wake continue as soon as its hold has been verified. The release can
@@ -1272,6 +1275,7 @@ void loop() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
+  perflogwriter::tick(lastActivityTime);  // Fork diagnostic; idle unless Timing Log is on
   TimeUtils::tickSystemClockFromRtc();
   const unsigned long activityDuration = millis() - activityStartTime;
 

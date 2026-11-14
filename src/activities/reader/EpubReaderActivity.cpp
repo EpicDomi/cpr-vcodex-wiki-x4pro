@@ -1028,6 +1028,9 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+  // Fork: edge slides adjust the frontlight (src/fork/ReaderLightControls).
+  if (readerlight::handleEdgeSlide(mappedInput, renderer)) return;
+
   switch (mappedInput.homeButtonAction()) {
     case HomeButtonAction::ReaderMenu:
     case HomeButtonAction::Bookmark:

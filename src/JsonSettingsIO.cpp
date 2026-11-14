@@ -618,6 +618,9 @@ bool loadSettingsDirect(CrossPointSettings& s, const JsonDocument& doc, bool* ne
   }
   s.touchReaderControls = s.touchReaderControls != 0;
   loadToggle("doubleClickPwrLight", s.doubleClickPwrLight);
+  loadToggle("readerEdgeLightSlide", s.readerEdgeLightSlide);
+  loadToggle("prevPageButtonLight", s.prevPageButtonLight);
+  loadToggle("timingLog", s.timingLog);
   loadEnum("homeButtonTapAction", s.homeButtonTapAction, static_cast<uint8_t>(HomeButtonAction::Count));
   loadEnum("homeButtonDoubleTapAction", s.homeButtonDoubleTapAction, static_cast<uint8_t>(HomeButtonAction::Count));
   loadEnum("homeButtonLongPressAction", s.homeButtonLongPressAction, static_cast<uint8_t>(HomeButtonAction::Count));
@@ -1112,6 +1115,9 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["characterSpacing"] = s.characterSpacing;
   doc["paragraphIndentSpaces"] = s.paragraphIndentSpaces;
   doc["doubleClickPwrLight"] = s.doubleClickPwrLight;
+  doc["readerEdgeLightSlide"] = s.readerEdgeLightSlide;
+  doc["prevPageButtonLight"] = s.prevPageButtonLight;
+  doc["timingLog"] = s.timingLog;
   doc["homeButtonTapAction"] = s.homeButtonTapAction;
   doc["homeButtonDoubleTapAction"] = s.homeButtonDoubleTapAction;
   doc["homeButtonLongPressAction"] = s.homeButtonLongPressAction;

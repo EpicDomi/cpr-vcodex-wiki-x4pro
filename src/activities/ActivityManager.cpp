@@ -6,6 +6,7 @@
 #include <HalDisplay.h>
 #include <HalPowerManager.h>
 #include <Memory.h>
+#include <PerfLog.h>
 #include <VectorFontSupport.h>
 
 #include <algorithm>
@@ -113,6 +114,7 @@ void ActivityManager::renderTaskLoop() {
       // (SETTINGS.darkMode, refreshed every loop in main.cpp); upstream's
       // screenInverted is an alias of that flag, so the panel polarity must NOT
       // be inverted here as well or the screen double-inverts.
+      perflog::Scope perfScope("render");
       currentActivity->render(std::move(lock));
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.

@@ -258,6 +258,9 @@ void XtcReaderActivity::loop() {
   clearEndOfBookOptionsIfNeeded();
   if (handleEndOfBookMenu()) return;
 
+  // Fork: edge slides adjust the frontlight (src/fork/ReaderLightControls).
+  if (readerlight::handleEdgeSlide(mappedInput, renderer)) return;
+
   if (waitingForConfirmSecondClick && ReaderUtils::hasNonConfirmNavigationInput(mappedInput)) {
     waitingForConfirmSecondClick = false;
     firstConfirmClickMs = 0UL;
