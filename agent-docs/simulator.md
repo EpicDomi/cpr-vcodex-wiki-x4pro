@@ -304,7 +304,10 @@ Notes:
   stand-ins: `HTTPClient::begin` returning `bool`, the five-argument
   `HalDisplay::displayWindow`, `BoardConfig::hasHaptics`, and the removal of
   the simulator's own `ContentProtection.h` and a duplicate
-  `coldBootImpliesPowerButton` (the firmware/SDK now provide both). Do not work
+  `coldBootImpliesPowerButton` (the firmware/SDK now provide both). It also
+  makes a scripted `SWIPE` report the finger's travel every 40 ms rather than
+  only its end points, which live drag tracking (the reader's edge slides)
+  needs. Do not work
   around simulator gaps in firmware sources (the imported wiki snapshot did;
   that was reverted). Regenerate the patch with `git diff <official commit>`
   when either side moves.

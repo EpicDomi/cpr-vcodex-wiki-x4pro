@@ -143,6 +143,47 @@ index b1d6f13..9e3a852 100644
    void refreshDisplay(RefreshMode mode = RefreshMode::FAST_REFRESH,
                        bool turnOffScreen = false);
    void setBusyWaitSliceHook(bool (*)(int8_t, uint8_t)) {}
+diff --git a/src/HalGPIO.cpp b/src/HalGPIO.cpp
+index e36a7d5..eae4343 100644
+--- a/src/HalGPIO.cpp
++++ b/src/HalGPIO.cpp
+@@ -104,6 +104,7 @@ enum class SyntheticAction {
+   CoverDown,
+   CoverUp,
+   TouchDown,
++  TouchMove,
+   TouchUp,
+   HomeDown,
+   HomeUp,
+@@ -470,6 +471,18 @@ void initializeSyntheticEvents() {
+                            duration, swipe)) {
+           syntheticEvents.push_back(
+               {atMs, SyntheticAction::TouchDown, -1, x1, y1});
++          if (swipe) {
++            // Report the finger's travel, not only its end points, so live
++            // drag tracking (isTouchHeldAt) sees a moving contact.
++            constexpr unsigned long STEP_MS = 40;
++            for (unsigned long t = STEP_MS; t < duration; t += STEP_MS) {
++              const float f =
++                  static_cast<float>(t) / static_cast<float>(duration);
++              syntheticEvents.push_back({atMs + t, SyntheticAction::TouchMove,
++                                         -1, x1 + (x2 - x1) * f,
++                                         y1 + (y2 - y1) * f});
++            }
++          }
+           syntheticEvents.push_back(
+               {atMs + duration, SyntheticAction::TouchUp, -1, x2, y2});
+         }
+@@ -583,6 +596,9 @@ void processSyntheticEvents() {
+     case SyntheticAction::TouchDown:
+       beginTouch(event.logicalNx, event.logicalNy);
+       break;
++    case SyntheticAction::TouchMove:
++      moveTouch(event.logicalNx, event.logicalNy);
++      break;
+     case SyntheticAction::TouchUp:
+       endTouch(event.logicalNx, event.logicalNy);
+       break;
 diff --git a/src/HalGPIO.h b/src/HalGPIO.h
 index 82f717c..0e4a00e 100644
 --- a/src/HalGPIO.h

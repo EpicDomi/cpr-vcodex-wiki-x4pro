@@ -78,6 +78,24 @@ notes differ from the upstream rules above, these notes win for this fork.
   workarounds) were deliberately removed; do not re-import them with wiki
   updates. `src/activities/wiki/` keeps Metske's formatting and is excluded from
   the CI clang-format check.
+- Fork-only features outside the wiki live in `src/fork/` and `lib/PerfLog/`,
+  again with one-line hooks in upstream files (each marked `Fork:`):
+  - Reader light controls (`src/fork/ReaderLightControls`): in a book, a
+    vertical slide along the left screen edge sets brightness and along the
+    right edge sets warmth; optionally the previous-page side button toggles
+    the light. Hooks: the three reader `loop()`s and
+    `ReaderUtils::detectPageTurn`. Settings `readerEdgeLightSlide`,
+    `prevPageButtonLight` (Controls, X4 Pro only). The slide idea and scale
+    follow CrossInk (`uxjulia/crossink`, MIT).
+  - Timing log (`lib/PerfLog`, `src/fork/PerfLogWriter`): with the System
+    setting `timingLog` on, input, activity enter/exit, render and panel
+    refresh times are appended to `/.crosspoint/cpr-vcodex-logs/timing.log`
+    while idle. Hooks: `main.cpp`, `Activity.cpp`,
+    `ActivityManager::renderTaskLoop`, and the `GfxRenderer` display calls.
+    Do not hook the `ActivityManager` methods that
+    `test/activity_lifecycle` extracts.
+  - `HomeActivity::render` clears the framebuffer only in the cover-grid
+    branch (upstream clears unconditionally, which blanks the Lyra Carousel).
 - `ci.yml` uploads X4 Pro binaries as CI artifacts with one-day retention for
   the owner's USB-recoverable device. Do not attach X4 Pro binaries to releases,
   Pages, or the auto-flash manifest without an explicit request from the owner
