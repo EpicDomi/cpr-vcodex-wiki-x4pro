@@ -42,6 +42,9 @@ freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size) {
         return freeink::ui::bitmapFromIcon(icon_settings_2_32);
       case UIIcon::Transfer:
         return freeink::ui::bitmapFromIcon(icon_arrow_right_left_32);
+      case UIIcon::Plugins:
+      case UIIcon::Blocks:
+        return freeink::ui::bitmapFromIcon(icon_blocks_32);
       case UIIcon::Wikipedia:
         return freeink::ui::bitmapFromIcon(icon_wikipedia_32);
       default:
@@ -73,6 +76,15 @@ freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size) {
       return freeink::ui::bitmapFromIcon(icon_trophy_24);
     case UIIcon::Heart:
       return freeink::ui::bitmapFromIcon(icon_heart_24);
+    case UIIcon::Recent:
+      return freeink::ui::bitmapFromIcon(icon_history_24);
+    case UIIcon::Settings:
+      return freeink::ui::bitmapFromIcon(icon_settings_2_24);
+    case UIIcon::Transfer:
+      return freeink::ui::bitmapFromIcon(icon_arrow_right_left_24);
+    case UIIcon::Plugins:
+    case UIIcon::Blocks:
+      return freeink::ui::bitmapFromIcon(icon_blocks_24);
     case UIIcon::Wikipedia:
       return freeink::ui::bitmapFromIcon(icon_wikipedia_24);
     default:

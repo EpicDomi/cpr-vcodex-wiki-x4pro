@@ -22,7 +22,6 @@
 #include "components/icons/hotspot.h"
 #include "components/icons/image24.h"
 #include "components/icons/library.h"
-#include "components/icons/wikipedia.h"
 #include "components/icons/recent.h"
 #include "components/icons/settings.h"
 #include "components/icons/settings2.h"
@@ -31,6 +30,7 @@
 #include "components/icons/trophy.h"
 #include "components/icons/trophy24.h"
 #include "components/icons/wifi.h"
+#include "components/icons/wikipedia.h"
 #include "fontIds.h"
 
 namespace {
@@ -107,7 +107,7 @@ const uint8_t* iconForName(UIIcon icon, int size) {
   return nullptr;
 }
 
-void drawCoverPlaceholder(GfxRenderer& renderer, int x, int y, int maxW, int maxH) {
+void drawCarouselPlaceholder(GfxRenderer& renderer, int x, int y, int maxW, int maxH) {
   renderer.drawRoundedRect(x, y, maxW, maxH, 1, kCornerRadius, true);
   renderer.fillRoundedRect(x, y + maxH / 3, maxW, 2 * maxH / 3, kCornerRadius, false, false, true, true, Color::Black);
   renderer.drawIcon(CoverIcon, x + maxW / 2 - 16, y + 8, 32, 32);
@@ -225,7 +225,7 @@ void LyraCarouselTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect,
       }
     }
     if (!hasCover) {
-      drawCoverPlaceholder(renderer, x, y, maxW, maxH);
+      drawCarouselPlaceholder(renderer, x, y, maxW, maxH);
     }
     return true;
   };

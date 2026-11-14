@@ -37,7 +37,8 @@ class EpubReaderMenuActivity final : public UiListActivity {
     MARK_AS_FINISHED,
     GO_HOME,
     SYNC,
-    DELETE_CACHE
+    DELETE_CACHE,
+    TEXT_SETTINGS
   };
 
   struct MenuItem {

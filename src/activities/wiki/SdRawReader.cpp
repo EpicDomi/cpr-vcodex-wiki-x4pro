@@ -9,16 +9,13 @@
 #include <HalStorage.h>
 
 // Block-device access differs per SD transport:
-//  * Native SDMMC (Xteink X4 Pro, ESP32-S3): SDCardManager::rawBlockDevice() is public, but
-//    this SDK revision returns the concrete freeink::SdmmcBlockDevice, whose definition lives
-//    in the library's src/ folder.
-//  * SPI (Xteink X4/X3, ESP32-C3): this SDK revision has no public accessor for the SdFat
-//    card, so the private `sd` member is reached the same way upstream's wiki port did.
-// Newer SDK revisions expose a uniform `FsBlockDeviceInterface* rawBlockDevice()` for both
-// transports; switch to it (and drop both workarounds) when the submodule is updated.
+//  * Native SDMMC (Xteink X4 Pro, ESP32-S3): SDCardManager::rawBlockDevice() hands back the
+//    card as an FsBlockDeviceInterface.
+//  * SPI (Xteink X4/X3, ESP32-C3): rawBlockDevice() only answers when the build sets
+//    USE_BLOCK_DEVICE_INTERFACE, which the C3 envs do not (it is tied to USB Drive), so the
+//    private SdFat `sd` member is reached the same way upstream's wiki port did.
 #if FREEINK_SD_SDMMC
 #include <SDCardManager.h>
-#include <SdmmcBlockDevice.h>
 #else
 #define private public
 #include <SDCardManager.h>

@@ -57,15 +57,68 @@ reader (`src/activities/wiki/`), maintained for an Xteink X4 Pro. Where these
 notes differ from the upstream rules above, these notes win for this fork.
 
 - Default branch is `main`. Upstream is `franssjz/cpr-vcodex` (`master`); the
-  wiki code comes from `Metske/cpr-vcodex-wiki` (`main`), which is a snapshot of
-  upstream commit `a4ae01a` (just after `1.6.0.38-cpr-vcodex`) with no shared
-  git history.
+  wiki code comes from `Metske/cpr-vcodex-wiki` (`main`), a snapshot of upstream
+  commit `a4ae01a` (just after `1.6.0.38-cpr-vcodex`) published without shared
+  git history. A history-join commit records that ancestry, so upstream updates
+  are ordinary merges: `git fetch https://github.com/franssjz/cpr-vcodex master`
+  then `git merge FETCH_HEAD`. Last merged upstream commit: `6bde1d6`
+  (1.6.5.7 + 3). The 1.6.0.38-based wiki build is the merge of pull request 1.
+- Expect conflicts only where a wiki hook sits beside an upstream addition
+  (shortcut registry and its array size, shortcut settings and their JSON
+  load/save, icon tables, the Apps/Home shortcut switches). Keep both sides.
+  Then rebuild `x4pro-gh_release_rc`, run the native tests, and smoke-test the
+  wiki in the simulator (`agent-docs/simulator.md`).
+- Original X4/X3 (ESP32-C3): with the wiki included, current upstream no longer
+  fits the 6,553,600-byte C3 slot (`gh_release` was 6,583,335 bytes at
+  `6bde1d6`). This fork targets the X4 Pro; do not trim upstream features to
+  make the C3 image fit without asking the owner.
 - Keep the wiki isolated: wiki code lives in `src/activities/wiki/`, and hooks
   into upstream files stay as small as possible so upstream merges stay easy.
   Metske's non-wiki changes (EPUB exact page counts, image tone curves, build
   workarounds) were deliberately removed; do not re-import them with wiki
   updates. `src/activities/wiki/` keeps Metske's formatting and is excluded from
   the CI clang-format check.
+- Fork-only features outside the wiki live in `src/fork/` and `lib/PerfLog/`,
+  again with one-line hooks in upstream files (each marked `Fork:`):
+  - Reader light controls (`src/fork/ReaderLightControls`): in a book, a
+    vertical slide along the left screen edge sets brightness and along the
+    right edge sets warmth. Hooks: the three reader `loop()`s. Setting
+    `readerEdgeLightSlide`. The slide idea and scale follow CrossInk
+    (`uxjulia/crossink`, MIT).
+  - Reader side-button actions (`src/fork/ReaderSideButtons`,
+    `src/fork/SideButtonSettingsActivity`): tap, double-tap and long-press
+    actions for the left (`BTN_UP`) and right (`BTN_DOWN`) side buttons while
+    a book page is on screen, modelled on the Home button gestures. Non-page
+    actions are injected into the Home-key action channel by
+    `MappedInputManager::applyReaderSideButtons()`, which `main.cpp` calls
+    right after `update()`; it is deliberately not inside `update()`, which
+    `test/button_press_navigation` extracts. Page actions come back through
+    `ReaderUtils::detectPageTurn`. With every row on Default the module is
+    inert and the stock mapping runs. Settings `side{Left,Right}{Tap,
+    DoubleTap,LongPress}Action`.
+  - On the carousel home a horizontal swipe that starts on the covers or the
+    icon strip is never treated as the Back swipe (stock Home maps Back to
+    "resume the latest book").
+  - Timing log (`lib/PerfLog`, `src/fork/PerfLogWriter`): with the System
+    setting `timingLog` on, input, activity enter/exit, render and panel
+    refresh times are appended to `/.crosspoint/cpr-vcodex-logs/timing.log`
+    while idle. Hooks: `main.cpp`, `Activity.cpp`,
+    `ActivityManager::renderTaskLoop`, and the `GfxRenderer` display calls.
+    Do not hook the `ActivityManager` methods that
+    `test/activity_lifecycle` extracts.
+  - `HomeActivity::render` clears the framebuffer only in the cover-grid
+    branch (upstream clears unconditionally, which blanks the Lyra Carousel).
+    The carousel's reuse of the frame already in the framebuffer is guarded by
+    a framebuffer fingerprint, so a screen drawn over Home (the light panel)
+    forces a reload instead of leaving its pixels behind.
+  - Lyra Carousel home, touch: a horizontal swipe moves the row under the
+    finger whichever row has focus. On the covers it steps one book; on the
+    icon strip it pages by a full window (`MappedInputManager::wasSwipeStart`).
+  - A new setting needs a row in two places: `SettingsActivity.cpp`
+    (`build*Settings`, the on-device menu) and `SettingsList.cpp` (the web
+    settings page), plus the field, the `JsonSettingsIO.cpp` load/save lines
+    and the string in `english.yaml`. Check the on-device menu in the
+    simulator; the first build of the light settings missed it.
 - `ci.yml` uploads X4 Pro binaries as CI artifacts with one-day retention for
   the owner's USB-recoverable device. Do not attach X4 Pro binaries to releases,
   Pages, or the auto-flash manifest without an explicit request from the owner

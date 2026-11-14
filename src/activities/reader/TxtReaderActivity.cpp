@@ -328,6 +328,7 @@ void TxtReaderActivity::onEnter() {
 
 void TxtReaderActivity::onExit() {
   Activity::onExit();
+  if (txt) pluginSession.exit(txt->getPath());
 
   ReaderUtils::requestReaderUiTransitionRefresh(renderer);
 
@@ -421,11 +422,15 @@ bool TxtReaderActivity::handleBackNavigation() {
 }
 
 void TxtReaderActivity::loop() {
+  if (txt) pluginSession.openOnceRendered(txt->getPath());
   READING_STATS.tickActiveSession();
   const unsigned long nowMs = millis();
 
   clearEndOfBookOptionsIfNeeded();
   if (handleEndOfBookMenu()) return;
+
+  // Fork: edge slides adjust the frontlight (src/fork/ReaderLightControls).
+  if (readerlight::handleEdgeSlide(mappedInput, renderer)) return;
 
   if (waitingForConfirmSecondClick && ReaderUtils::hasNonConfirmNavigationInput(mappedInput)) {
     waitingForConfirmSecondClick = false;
@@ -473,6 +478,8 @@ void TxtReaderActivity::loop() {
   const bool skip = !fromTilt && SETTINGS.longPressButtonBehavior == CrossPointSettings::LONG_PRESS_CHAPTER_SKIP &&
                     heldMs >= ReaderUtils::SKIP_HOLD_MS;
   const int amount = skip ? 10 : 1;
+  RenderLock turnLock(*this);
+  const int previousPage = currentPage;
 
   if (prevTriggered) {
     if (skipPages(-amount)) {
@@ -485,6 +492,11 @@ void TxtReaderActivity::loop() {
       requestUpdate();
     }
   }
+  pluginSession.noteTurn(!skip && !prevTriggered, previousPage != currentPage);
+}
+
+void TxtReaderActivity::prepareForSleep() {
+  if (txt) pluginSession.flush(txt->getPath());
 }
 
 bool TxtReaderActivity::skipPages(const int amount) {
@@ -534,7 +546,11 @@ std::string TxtReaderActivity::moveCompletedBookIfEnabled() {
 
   const std::string title = txt->getTitle();
   const std::string coverBmpPath = txt->getCoverBmpPath();
-  txt.reset();
+  {
+    RenderLock lock(*this);
+    pluginSession.exit(sourcePath);
+    txt.reset();
+  }
 
   const auto moveResult =
       CompletedBookMover::moveCompletedBookIfEnabled(sourcePath, title, "", coverBmpPath, stableBookId);
@@ -823,6 +839,7 @@ void TxtReaderActivity::render(RenderLock&&) {
   if (isAtEndOfBook()) {
     READING_STATS.updateProgress(100, true, "", 100);
     renderEndOfBook();
+    pluginSession.rendered(10000);
     return;
   }
 
@@ -834,6 +851,7 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   renderer.clearScreen();
   renderPage();
+  pluginSession.rendered(totalPages > 0 ? static_cast<int>(static_cast<int64_t>(currentPage) * 10000 / totalPages) : 0);
 
   // Save progress
   saveProgress();

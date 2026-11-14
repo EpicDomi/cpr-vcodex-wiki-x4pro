@@ -45,7 +45,11 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
                                 KOReaderSyncIntentState syncIntent = KOReaderSyncIntentState::COMPARE,
                                 bool hasPrecomputedLocalProgress = false,
                                 const SavedProgressPosition& precomputedLocalProgress = SavedProgressPosition{},
-                                const std::string& precomputedLocalChapterLabel = std::string());
+                                const std::string& precomputedLocalChapterLabel = std::string(),
+                                bool resumedAfterMemoryRecovery = false);
+
+  static std::unique_ptr<KOReaderSyncActivity> resumeAfterMemoryRecovery(GfxRenderer& renderer,
+                                                                         MappedInputManager& mappedInput);
 
   void onEnter() override;
   void onExit() override;
@@ -98,6 +102,7 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
   bool remotePositionMapped = false;
   KOReaderProgress remoteProgress;
   CrossPointPosition remotePosition;
+  CrossPointPosition localPosition{};
 
   // Local progress as KOReader format (for display / upload)
   bool hasLocalProgress = false;
@@ -112,10 +117,12 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
   unsigned long uploadCompleteTime = 0;
   bool closeRequested = false;
   bool networkMemoryReleasePending = false;
+  bool memoryRecoveryAttempted = false;
 
   void onWifiSelectionComplete(bool success);
   void performSync();
   void performUpload();
+  bool recoverFromLowMemory(KOReaderSyncIntentState resumeIntent);
   void prepareNetworkMemory(const char* stage);
   void restoreNetworkMemory(const char* stage);
   void closeCancelled();
@@ -125,7 +132,8 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
   void releaseEpubForMapping();
   bool computeLocalProgressAndChapter();
   void computeRemoteChapter();
-  bool ensureRemotePositionMapped(bool closeSessionBeforeMapping = true);
+  bool ensureRemotePositionMapped(bool closeSessionBeforeMapping = true, const KOReaderProgress* alternate = nullptr,
+                                  const std::string& alternateHash = std::string());
   bool retryWithBinaryDocumentHash();
   AppliedPosition remoteAppliedPosition() const;
   void applyRemoteFromChooser();

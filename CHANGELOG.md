@@ -1,5 +1,191 @@
 # Changelog
 
+## 1.6.5.7 - Reference pages, statistics shortcut and reader fixes (2026-10-23)
+
+- Add optional **Stable Page Numbers (EPUB)** under Reader > Customise Status
+  Bar (#207). EPUBs prepared with CrossInk/Inky `META-INF/x-locations.json`
+  use a fixed whole-book reference-page total across layout changes. The
+  current reference page is estimated from chapter progress; these are not
+  publisher pages or physical page turns. Missing, invalid or memory-constrained
+  metadata falls back to chapter pages. Metadata generation is not included.
+- Add Controls > **Long Power Button Press** > **Reading Stats** (#207).
+  Hold Power to view statistics and the daily goal, then Back to resume.
+  Exclude time spent on statistics from the reader session. Sleep remains
+  the default; preserve short-click actions and consume the hold's release.
+- Reduce duplicate text antialiasing work (#229): produce both gray masks
+  in one traversal per strip when memory permits, with the existing two-pass
+  fallback under memory pressure. Preserve panel waveforms and image grayscale.
+  True grayscale still needs multiple display phases; no hardware speedup or
+  resolution of the reported two-second X3 delay is claimed yet.
+- Correct the OPDS HTTPS memory preflight introduced in 1.6.5.6 (#228).
+  X3/X4 feeds use esp_http_client, so they no longer apply the unrelated
+  wolfSSL download thresholds before trying a connection. Keep SD staging,
+  cache reclamation, checked transfers, parsing and failure cleanup.
+- Pass all 898 native tests. Validate reference metadata with nine native
+  tests and fourteen simulator
+  scenarios; verify antialiasing masks with 30,720 comparisons and 21 simulator
+  boots including image regressions. C3 OPDS regression cases cover low-heap
+  requests and retry while retaining the wolfSSL backend guard. Development
+  and release builds pass the existing 97.5% flash budget.
+- Physical X3/X4 timing, panel appearance, buttons and OTA/SD validation, plus
+  the reporter's Grimmory catalog, remain pending. See the results and limits
+  for [#207](agent-docs/issue-207-stable-page-numbers.md),
+  [#228](agent-docs/issue-228-opds-memory.md) and
+  [#229](agent-docs/issue-229-text-antialiasing.md).
+  The release remains one shared ESP32-C3 X4/X3 binary; X4 Pro distribution
+  stays withdrawn. Existing books, settings and reading history are preserved.
+
+## 1.6.5.6 - OPDS catalog memory and recovery fixes (2026-10-17)
+
+- Reduce OPDS catalog memory pressure (#228) by downloading each feed to a
+  temporary SD file, closing HTTP/TLS, and only then parsing it. Adapt the
+  approach from [CrossInk `6a45458f`](https://github.com/uxjulia/CrossInk/commit/6a45458f11504434d32e595b20de479432eeafd5).
+- Release reader-font caches before fetching, clear the previous catalog on
+  every retry, and clean up temporary files and partial entries on failure.
+  Report Expat allocation failures as memory errors instead of malformed feeds.
+- Treat a failed final SD flush as a download error and remove the incomplete
+  file before it can be parsed or opened.
+- Pass all 785 native tests, including 50 new feed-loading, parser-recovery and
+  file-download cases. Verify a valid catalog still opens after a failed feed
+  in the simulator without restarting. ESP32-C3 development and release builds
+  pass the firmware budget gate. Physical X3 confirmation with the reporter's
+  Grimmory library remains pending. See [results and limits](agent-docs/issue-228-opds-memory.md).
+
+## 1.6.5.5 - Highlight opening and resume fixes (2026-10-17)
+
+- Fix highlight activation stopping at an old page hint while a chapter is
+  still being paginated (#227). Give the active paginator one bounded extension
+  so recovery can verify the complete nearby search window on the first opening.
+- Restore verified highlight shading when resuming a page whose saved anchor
+  now points to an earlier page. Preserve the reading position and original
+  `bookmarks.bin`; existing highlights do not need to be recreated.
+- Keep recovery bounded to two loaded pages and eight cached resolutions.
+  Protect current-page ranges and leave ambiguous or unverified text unshaded,
+  including when the recovery cache is full.
+- Verify all 28 supplied highlights on first opening and direct resume with
+  the reporter's EPUB, font and original bookmark records: 56 exact-image checks,
+  14 synthetic simulator scenarios and 40 focused native tests pass. ESP32-C3
+  development and release builds pass the firmware budget gate. Physical X3/X4
+  validation remains pending. See [results and limits](agent-docs/issues-221-222-227-2026-10.md).
+
+## 1.6.5.4 - Legacy highlight recovery (2026-10-16)
+
+- Recover older EPUB highlights whose saved page or word positions no longer
+  match the layout (#227). Opening a highlight from either the reader or global
+  Highlights list searches for its complete saved text within three pages of
+  the current page hint, including a phrase crossing one page boundary.
+- Match legacy Korean/CJK token spacing and layout-inserted hyphens while
+  preserving Latin word boundaries and literal saved hyphens. Require a unique
+  match; missing, partial or ambiguous matches no longer shade unrelated words
+  using stale indices. Keep original `bookmarks.bin` records unchanged.
+- Preserve the exact range of newly selected highlights in the current layout,
+  including repeated text and snippets too long to store in full. Keep recovery
+  memory bounded and nearby-page reads out of normal highlight painting.
+- Pass all 735 native tests and nine simulator scenarios, covering old v4/v5
+  records, wrong pages and indices, ambiguous/missing text, cross-page phrases,
+  both Highlights entry points and fresh repeated-text selections. ESP32-C3
+  development and release builds pass the firmware budget gate. Physical X3/X4
+  checks and validation against the reporter's original EPUB and `bookmarks.bin`
+  remain pending. See [results and limits](agent-docs/issues-221-222-227-2026-10.md).
+
+## 1.6.5.3 - Highlights navigation and KOReader recovery (2026-10-15)
+
+- Improve large Highlights lists (#227) with a bounded label window and
+  batched SD-font glyph loading, including a per-row fallback for dense CJK
+  text. Keep the selected row visible when scrolling across supported themes.
+- Preserve short button presses across slow rendering: sample held time with
+  the input event and prevent release edges from becoming page jumps. Keep
+  intentional hold-to-page navigation.
+- Capture KOReader ESP/TLS failure details before connection cleanup and
+  distinguish a missing HTTP response from an actual HTTP status (#221).
+  Show the attempted server origin without credentials or URL query data.
+- Recover once from a rejected TLS memory preflight for KOReader registration,
+  authentication and manual sync (#222). Restart directly into the saved
+  operation without loading reader fonts first, validate the profile identity,
+  and preserve the pending book position. Do not enter a restart loop or
+  replay registration after a request whose result is uncertain. Automatic
+  sync does not use this restart path.
+- Restore the configured SD reader font after a recovery boot. Keep TLS
+  certificate verification and the existing contiguous-memory guard.
+- Show the effective server URL in KOReader settings and profile editing;
+  correct the guide's default to `https://sync.koreader.rocks:443` without
+  changing existing profiles or the firmware default.
+- Pass all 719 native tests and simulator cases for 256 highlights, effective
+  URLs, profile selection, loopback requests and recovery guards, including
+  17 KOReader settings/network checks.
+  Physical X3/X4 TLS and restart validation remains pending. The separate
+  older-highlight error in #227 still needs reproduction details; no fix is
+  claimed for it. See [results and limits](agent-docs/issues-221-222-227-2026-10.md).
+
+## 1.6.5.2 - Reader wake and flashcard persistence (2026-10-15)
+
+- Fix waking from a book into its folder or Home by applying pending reader
+  transitions before dispatching input (#225). Manual sleep and Quick Resume
+  after inactivity return to the book.
+- Resume flashcard reviews at the same card, side and scroll position,
+  preserving the pending queue and session counts. Save ratings on sleep and
+  Home; reject incomplete progress writes and invalid or stale resume snapshots.
+- Recover reusable font caches before abandoning an EPUB chapter under memory
+  pressure. This mitigates a demonstrated failure path related to #223; the
+  reported book still needs confirmation.
+- Pass 664 native tests and six simulator sleep/wake scenarios covering EPUB,
+  TXT and flashcards. Physical X3/X4 validation remains pending. No OTA or SD
+  compatibility fix is claimed for #224 or #226. Partition tables and update
+  paths are unchanged; X4 Pro distribution remains withdrawn.
+
+## 1.6.5.1 - CrossPoint integration and navigation fixes (2026-10-08)
+
+- Integrate upstream `develop` through `28971493` (GitHub head checked on
+  2026-10-07), with FreeInk SDK `9729236c`: library indexing, SD plugins and
+  their web/event APIs, protected-content support, TTF fonts, layout fixes,
+  independent touch gestures, configurable Home actions and KOReader position
+  comparison. Start the CPR-vCodex 1.6.5 release line at 1.6.5.1 while retaining
+  the fork's four-part version and C3 release-asset naming.
+- Preserve CPR-vCodex statistics, offline Sync Day, achievements, favorites,
+  flashcards, StarDict/history, v5 bookmarks/highlights, Lyra Carousel,
+  Bionic Reading, text darkness, night mode, named KOReader profiles and JSON
+  settings. Retain the styled TXT/Markdown reader and stable book-data paths.
+- Adapt new layout word storage to retain inserted-hyphen metadata used by
+  highlights. Preserve reading positions, cover references and plugin sidecars
+  when renaming books on the device.
+- Keep the fork's header date and Sync Day reminder clear of the new fixed
+  battery/clock slots, including centered clocks and viewable display insets.
+- Build plugin networking/content crypto on C3 as well as S3, while retaining
+  the C3 certificate-verified OTA path and the existing partition tables.
+  Enable compiler/linker LTO to fit the combined firmware without removing
+  the fork's fonts or installed UI languages. Limit LTO to application objects,
+  leaving the custom ESP-IDF rebuild on its framework compiler flags to avoid
+  a clean-build DRAM section conflict. X4 Pro remains compile-only.
+- Fix mismatched list selections in Apps, Sync Day and other fork screens;
+  Plugins is selectable. Keep selected rows visible across scrolling and
+  orientation changes, including Classic and Lyra Custom.
+- Constrain oversized option/message popups to the screen and scroll their
+  contents. Long sleep-screen option lists no longer lose off-screen entries.
+- Stop one physical Back press from closing both a child screen and its
+  parent. Apps shortcuts retain their parent and selection; nested Settings,
+  OPDS selection and Screen Clean return one step at a time. Network cleanup
+  reboots and opening a reader retain their intentional memory-release paths.
+- Align Bionic Reading, font and refresh labels with their saved values;
+  restore all six refresh choices in quick settings. Refresh SD font discovery,
+  preview samples and fallback state; synchronize reader font reloads with
+  rendering. Correct the stopped auto-turn status and complete Spanish labels.
+  Quick settings and the preview editor remain separate; this is not a menu redesign.
+- Keep OTA directed at `franssjz/cpr-vcodex`, with verified manifest, image
+  digest, chip/board checks and inactive-slot writes. Add X3/X4 slot-limit,
+  retry and development-version coverage: 644 native tests, including 81 OTA
+  cases, pass. Simulator regressions cover popups, list selection, reader
+  settings and 29 Back-navigation scenarios.
+- Hardware scope: X4 original and X3 share the ESP32-C3 image. The dev35
+  candidate was USB-installed and booted twice on one X4 with the previous
+  firmware retained. This does not validate an end-to-end OTA update of this
+  release or physical X3 behavior. X3 OTA/SD, panel variants and recovery still
+  require device testing. Early boot confirmation limits automatic rollback;
+  no brick-free guarantee is made. X4 Pro distribution remains withdrawn, and
+  this BIN must not be installed on X4 Classic/X4C (ESP32-S3).
+- Preserve existing settings, books and reading data; no factory reset is
+  required. See `agent-docs/upstream-sync.md`, `agent-docs/simulator.md` and
+  `agent-docs/stability-audit-2026-09.md` for decisions and validation limits.
+
 ## 1.6.0.38 — OTA and EPUB image fixes
 
 - Fix progressive JPEGs whose luminance and color components use separate
@@ -90,6 +276,13 @@ This changelog starts at `1.2.0.24`, the point where CPR-vCodex began tracking r
 >
 | Version | Changes |
 |---|---|
+| `1.6.5.7` | - Add optional Stable Page Numbers (EPUB) using CrossInk/Inky x-locations metadata: a fixed whole-book reference total with an approximate current page and safe chapter-page fallback (#207). Enable under Reader > Customise Status Bar; metadata generation is not included.<br>- Add Controls > Long Power Button Press > Reading Stats. Back resumes the book; statistics visits do not count as reading time. Sleep remains the default (#207).<br>- Generate both text antialiasing masks in one strip traversal when memory permits, retaining the two-pass fallback and existing panel waveforms/image grayscale (#229). Hardware speed improvements remain unmeasured.<br>- Correct the OPDS HTTPS preflight introduced in 1.6.5.6: X3/X4 feeds no longer use unrelated wolfSSL thresholds before attempting esp_http_client connections. Retain SD staging and failure cleanup (#228).<br>- All 898 native tests and simulator regressions pass, including nine reference-page tests, fourteen reference-page/button scenarios, 30,720 glyph-mask comparisons and 21 grayscale simulator boots. Both C3 builds pass the 97.5% flash budget. Physical X3/X4 timing, appearance, buttons, OTA/SD and the reporter's Grimmory catalog remain pending. One shared ESP32-C3 binary for X4/X3; no X4 Pro assets. |
+| `1.6.5.6` | - Reduce OPDS catalog memory pressure by saving each feed temporarily to SD and closing HTTP/TLS before parsing it (#228), adapting CrossInk's phase-separation approach.<br>- Release reader-font caches before fetching, clear the old catalog on every retry, and remove temporary files and partial entries after failures. Report parser allocation failures as memory errors.<br>- Detect failed final SD flushes and remove incomplete downloads before they can be parsed or opened.<br>- Pass all 785 native tests, including 50 new feed-loading, parser-recovery and file-download cases, and verify valid-catalog recovery after a failed feed in the simulator without restarting. ESP32-C3 development and release builds pass the firmware budget gate. Physical X3 confirmation with the reporter's Grimmory library remains pending. |
+| `1.6.5.5` | - Fix highlight activation stopping at an old page hint while chapter pagination is incomplete (#227), using one bounded extension of the active paginator to verify the nearby recovery window.<br>- Restore verified shading when resuming a page whose saved anchor now points to an earlier page. Preserve the reading position and original bookmarks.bin; existing highlights do not need to be recreated.<br>- Keep recovery memory bounded, protect current-page ranges, and leave ambiguous or unverified text unshaded even when the recovery cache is full.<br>- Pass 28 first-opening and 28 direct-resume checks with the reporter's EPUB, font and original bookmark records, plus 14 synthetic simulator scenarios and 40 focused native tests. ESP32-C3 development and release builds pass the firmware budget gate. Physical X3/X4 validation remains pending. |
+| `1.6.5.4` | - Recover older EPUB highlights from their complete saved text when selecting a highlight from either Highlights list, searching within three pages of the resolved page hint and allowing one page boundary (#227).<br>- Support legacy Korean/CJK spacing and layout-inserted hyphens while preserving Latin word boundaries and literal saved hyphens. Require a unique complete match; never shade unrelated words using stale indices. Keep original bookmarks.bin records unchanged.<br>- Preserve exact fresh-selection ranges in the current layout, including repeated text and truncated snippets, with bounded recovery memory and no nearby-page reads during painting.<br>- Pass all 735 native tests and nine simulator scenarios. ESP32-C3 development and release builds pass the firmware budget gate. Physical X3/X4 checks and validation against the reporter's original EPUB and bookmarks.bin remain pending. |
+| `1.6.5.3` | - Improve large Highlights lists with bounded label caching and batched SD-font glyph loading; preserve short presses across slow rendering and keep hold-to-page navigation (#227).<br>- Report actual KOReader ESP/TLS failures and the attempted server origin instead of misleading HTTP -1 responses (#221).<br>- Retry registration, authentication or manual sync once through a fresh boot only when the TLS memory check rejects the operation before any request is sent. Preserve saved profile identity, book position and reader font; keep certificate verification and prevent restart loops or replay after an uncertain registration result (#222).<br>- Show the effective KOReader server URL and correct the documented default without changing saved profiles.<br>- Pass all 719 native tests, 256-highlight simulator lists and 17 KOReader simulator checks. Physical X3/X4 TLS/restart confirmation and the separate older-highlight error remain pending. |
+| `1.6.5.2` | - Fix waking from a book into its folder or Home by applying pending reader transitions before dispatching input (#225). Manual sleep and Quick Resume after inactivity return to the book.<br>- Resume flashcard reviews at the same card, side and scroll position, preserving the pending queue and session counts. Save ratings on sleep and Home; reject incomplete progress writes and invalid or stale resume snapshots.<br>- Recover reusable font caches before abandoning an EPUB chapter under memory pressure. This mitigates a demonstrated failure path related to #223; the reported book still needs confirmation.<br>- Pass 664 native tests and six simulator sleep/wake scenarios covering EPUB, TXT and flashcards. Physical X3/X4 validation remains pending.<br>- No OTA or SD compatibility fix is claimed for #224 or #226. Partition tables and update paths are unchanged; X4 Pro distribution remains withdrawn. |
+| `1.6.5.1` | - Integrate CrossPoint develop through `28971493` with FreeInk SDK `9729236c`, retaining CPR-vCodex statistics, Sync Day, achievements, favorites, flashcards, dictionaries, bookmarks/highlights, themes and reader settings.<br>- Add upstream library indexing, SD plugins and web/event APIs, TTF fonts, protected-content support and layout improvements.<br>- Fix mismatched selections in Apps, Sync Day and other lists, make Plugins selectable, and scroll oversized popups instead of clipping their contents.<br>- Make one Back press return one step in nested screens; preserve Apps context and selection. Keep intentional network cleanup restarts and reader memory-release paths.<br>- Correct reader setting labels, refresh choices, SD font discovery and previews, render synchronization and Spanish text. Quick settings and the preview editor remain separate.<br>- Preserve the fork's OTA repository, certificate-verified manifest, SHA-256/chip/board checks, inactive-slot writes and partition tables. All 644 native tests pass, including 81 OTA cases; simulator coverage includes 29 Back-navigation scenarios.<br>- Scope LTO to application objects so clean custom ESP-IDF builds remain reproducible.<br>- Hardware validation is limited: a development candidate booted twice on one original X4 after USB installation. End-to-end OTA for this release and physical X3 OTA/SD/recovery remain unverified. Early boot confirmation limits automatic rollback; no brick-free guarantee is made.<br>- Publish only the ESP32-C3 image for original X4/X3. X4 Pro distribution remains withdrawn. Do not install this BIN on X4 Classic/X4C (ESP32-S3). Existing settings and reading data are retained; no factory reset is required. |
 | `1.6.0.38` | - Fix .37's update-check failure caused by insufficient RAM during HTTPS certificate signature verification on X4.<br>- Adapt CrossInk's fresh network boot to CPR-vCodex: Settings briefly shows Loading, then enters Update without retaining the Settings screen or SD reader fonts.<br>- Keep the fork's settings, languages, repository, manifest, C3 binary naming, certificate verification and SHA-256 validation.<br>- Reproduced the original failure and verified the corrected query, complete download, OTA installation and reboot on a USB-recoverable X4; the flashed image matches the public BIN. X3 hardware validation remains pending; see the stability audit.<br>- Devices whose installed OTA client cannot connect need this release through SD Card Firmware Update or a supported USB flash. Preserve settings and reading data. X4 Pro distribution remains withdrawn.<br>- Restore EPUB image grayscale with text anti-aliasing off (#215), without clearing existing caches or settings.<br>- Fix progressive JPEG decoding with separate component scans and chroma Huffman tables (Crosspoint #2925); retain existing memory guards.<br>- All 274 native tests pass, including five real-decoder JPEG cases. Simulator regressions cover image grayscale and existing caches. The development build booted twice and confirmed its OTA slot on X4; physical EPUB rendering and X3 validation remain pending. |
 | `1.6.0.37` | - X3/X4 stabilization release; X4 Pro distribution remains withdrawn.<br>- OTA status shows installed and published versions, reports equal/newer builds as up to date, and distinguishes failed checks from failed installations. Certificate-verified manifest fallback improves resilience when Pages is unreachable.<br>- Repair OTA payload transport; require a complete authenticated manifest and verify size, SHA-256, chip and board before activating the inactive slot.<br>- Preserve saved ISO language codes and migrate historical language indices without deleting the original settings. Keep all 24 UI languages, including Spanish.<br>- Handle image allocation failures and recover about 326 KiB of font-table flash without changing glyphs, metrics or spacing.<br>- Validate packaged image size, chip and embedded application version, including cached builds.<br>- Automated fault-injection and simulator checks are documented in the stability audit. End-to-end OTA/reboot on physical X3 and X4 remains unverified; an installed client stuck at 0 B may need the SD Card Firmware Update path described in README. |
 | `1.6.0.34` | - Fixed Wi-Fi OTA downloads stopping at `0 B / 0%` on X3/X4, reported in [#219](https://github.com/franssjz/cpr-vcodex/issues/219). The regression entered with the 1.6.0.31 network migration: after the verified manifest request, the ESP32-C3 could fail to allocate the certificate-backed second TLS session before receiving any firmware bytes.<br>- Restored the proven low-fragmentation Arduino TLS transport for the firmware payload only. The manifest remains certificate-verified, its SHA-256 is now mandatory, and the downloaded image is activated only after its exact size, SHA-256, ESP chip, CPR-vCodex board tag, and ESP image structure all validate.<br>- Streams the image directly into the inactive OTA partition and aborts without selecting it on any network, write, identity, size, or digest failure. This follows CrossPoint's direct-slot OTA design from [`3e627112`](https://github.com/crosspoint-reader/crosspoint-reader/commit/3e627112) while retaining CPR-vCodex's stronger board and release-manifest checks.<br>- Documented the one-time Wi-Fi File Transfer bridge required by devices already running 1.6.0.31-1.6.0.33: their faulty updater cannot repair itself until 1.6.0.34 is installed through `SD Card Firmware Update`; later OTA updates use the repaired path normally.<br>- Passed the firmware-manifest regressions and the `gh_release` ESP32-C3 build. The packaged image is 6,433,776 bytes and fits the 6,553,600-byte X4/X3 OTA slot with 119,824 bytes remaining; physical X3/X4 OTA confirmation is still requested. |
