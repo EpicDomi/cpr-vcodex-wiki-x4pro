@@ -279,6 +279,24 @@ int wrapBookIndex(int index, int bookCount) {
 
 uint32_t fnv1aByte(uint32_t hash, const uint8_t value) { return (hash ^ value) * FNV1A_PRIME; }
 
+// Fork: cheap fingerprint of the whole framebuffer. The carousel reuses the
+// frame its previous render left there; anything else that drew over it since
+// (the light panel, a popup) must force a reload instead.
+uint32_t framebufferFingerprint(GfxRenderer& renderer) {
+  const uint8_t* buffer = renderer.getFrameBuffer();
+  if (!buffer) return 0;
+  const size_t size = renderer.getBufferSize();
+  uint32_t hash = FNV1A_OFFSET;
+  size_t i = 0;
+  for (; i + sizeof(uint32_t) <= size; i += sizeof(uint32_t)) {
+    uint32_t word = 0;
+    memcpy(&word, buffer + i, sizeof(word));
+    hash = (hash ^ word) * FNV1A_PRIME;
+  }
+  for (; i < size; ++i) hash = (hash ^ buffer[i]) * FNV1A_PRIME;
+  return hash;
+}
+
 uint32_t fnv1aString(uint32_t hash, const std::string& value) {
   for (const char c : value) {
     hash = fnv1aByte(hash, static_cast<uint8_t>(c));
@@ -1211,7 +1229,26 @@ bool HomeActivity::handleTouch() {
       if (swipe == MappedInputManager::SwipeDir::Left || swipe == MappedInputManager::SwipeDir::Right) {
         // Swiping left reveals the next item (content follows the finger).
         const int step = swipe == MappedInputManager::SwipeDir::Left ? 1 : -1;
-        if (inCarouselRow) {
+        // Fork: the row under the finger moves, whichever row has the focus.
+        // On the covers the carousel steps one book; on the icon strip it
+        // pages by a full window of icons.
+        int swipeX = 0;
+        int swipeY = 0;
+        const bool swipeStartKnown = mappedInput.wasSwipeStart(swipeX, swipeY);
+        const int bandTop = LyraCarouselTheme::menuBandRect(renderer).y;
+        if (swipeStartKnown && recentCount > 0 && swipeY >= metrics.homeTopPadding && swipeY < bandTop) {
+          const int center = inCarouselRow ? selectorIndex : wrapBookIndex(lastCarouselBookIndex, recentCount);
+          selectorIndex = wrapBookIndex(center + step, recentCount);
+        } else if (swipeStartKnown && homeCount > 0 && swipeY >= bandTop) {
+          const int visibleCount = std::min(homeCount, LyraCarouselTheme::kVisibleMenuSlots);
+          const int maxStart = homeCount - visibleCount;
+          const int currentStart = LyraCarouselTheme::menuWindowStart(homeCount, selectorIndex - recentCount);
+          int nextStart = std::clamp(currentStart + step * visibleCount, 0, maxStart);
+          if (nextStart == currentStart) nextStart = step > 0 ? 0 : maxStart;  // wrap at either end
+          if (inCarouselRow) lastCarouselBookIndex = selectorIndex;
+          // The strip centres its window on the selection, so select the middle icon.
+          selectorIndex = recentCount + nextStart + visibleCount / 2;
+        } else if (inCarouselRow) {
           selectorIndex = wrapBookIndex(selectorIndex + step, recentCount);
         } else if (homeCount > 0) {
           const int homeIdx = selectorIndex - recentCount;
@@ -1584,7 +1621,8 @@ void HomeActivity::render(RenderLock&&) {
     const uint32_t frameHash = getCachedCarouselFrameHash(centerIdx);
     const bool residentFrameMatches = residentCarouselFrameValid && residentCarouselFrameIndex == centerIdx &&
                                       residentCarouselSelectorIndex == selectorIndex &&
-                                      residentCarouselFrameHash == frameHash;
+                                      residentCarouselFrameHash == frameHash &&
+                                      residentCarouselFrameChecksum == framebufferFingerprint(renderer);
     if (!residentFrameMatches) {
       // Load the center frame from the SD cache directly into the frame buffer,
       // or render it fresh (and cache to SD). No intermediate slot allocation.
@@ -1686,6 +1724,8 @@ void HomeActivity::render(RenderLock&&) {
   } else {
     renderer.displayBuffer();
   }
+  // Fork: remember what this render left behind (see framebufferFingerprint).
+  if (usedCarouselFrame) residentCarouselFrameChecksum = framebufferFingerprint(renderer);
 
   if (wasFirstRenderDone && carouselTheme && recentsLoaded && !carouselFramesReady && !recentBooks.empty()) {
     preRenderCarouselFrames();

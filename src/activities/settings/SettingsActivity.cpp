@@ -306,6 +306,17 @@ std::vector<SettingInfo> buildControlsSettings() {
     v.push_back(SettingInfo::Enum(StrId::STR_HAPTIC_INTENSITY, &CrossPointSettings::hapticIntensity,
                                   {StrId::STR_HAPTIC_LOW, StrId::STR_HAPTIC_MEDIUM, StrId::STR_HAPTIC_HIGH}));
   }
+  // Fork: reader light controls (src/fork/ReaderLightControls), and the
+  // double-click toggle that upstream only exposes in the web settings.
+  if (Frontlight.present()) {
+    if (BoardConfig::hasTouch()) {
+      v.push_back(SettingInfo::Toggle(StrId::STR_EDGE_SLIDE_LIGHT, &CrossPointSettings::readerEdgeLightSlide));
+    }
+    v.push_back(SettingInfo::Toggle(StrId::STR_PREV_BTN_LIGHT, &CrossPointSettings::prevPageButtonLight));
+    if (BoardConfig::isX4Pro()) {
+      v.push_back(SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight));
+    }
+  }
   return v;
 }
 
@@ -333,6 +344,8 @@ std::vector<SettingInfo> buildSystemSettings() {
       SettingInfo::Action(StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts),
       SettingInfo::Action(StrId::STR_CLOCK, SettingAction::ClockSettings),
       SettingInfo::Action(StrId::STR_PLUGINS, SettingAction::Plugins),
+      // Fork diagnostic (src/fork/PerfLogWriter).
+      SettingInfo::Toggle(StrId::STR_TIMING_LOG, &CrossPointSettings::timingLog),
       SettingInfo::Action(StrId::STR_ABOUT, SettingAction::About),
   };
 }

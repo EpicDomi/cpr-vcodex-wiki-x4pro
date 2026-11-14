@@ -40,6 +40,8 @@ class HomeActivity final : public Activity {
   int residentCarouselSelectorIndex = -1;
   uint32_t residentCarouselFrameHash = 0;
   bool residentCarouselFrameValid = false;
+  // Fork: fingerprint of the framebuffer as the last carousel render left it.
+  uint32_t residentCarouselFrameChecksum = 0;
   int cachedCarouselFrameHashIndex = -1;
   uint32_t cachedCarouselFrameHash = 0;
   bool cachedCarouselFrameHashValid = false;

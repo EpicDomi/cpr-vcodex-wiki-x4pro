@@ -96,6 +96,17 @@ notes differ from the upstream rules above, these notes win for this fork.
     `test/activity_lifecycle` extracts.
   - `HomeActivity::render` clears the framebuffer only in the cover-grid
     branch (upstream clears unconditionally, which blanks the Lyra Carousel).
+    The carousel's reuse of the frame already in the framebuffer is guarded by
+    a framebuffer fingerprint, so a screen drawn over Home (the light panel)
+    forces a reload instead of leaving its pixels behind.
+  - Lyra Carousel home, touch: a horizontal swipe moves the row under the
+    finger whichever row has focus. On the covers it steps one book; on the
+    icon strip it pages by a full window (`MappedInputManager::wasSwipeStart`).
+  - A new setting needs a row in two places: `SettingsActivity.cpp`
+    (`build*Settings`, the on-device menu) and `SettingsList.cpp` (the web
+    settings page), plus the field, the `JsonSettingsIO.cpp` load/save lines
+    and the string in `english.yaml`. Check the on-device menu in the
+    simulator; the first build of the light settings missed it.
 - `ci.yml` uploads X4 Pro binaries as CI artifacts with one-day retention for
   the owner's USB-recoverable device. Do not attach X4 Pro binaries to releases,
   Pages, or the auto-flash manifest without an explicit request from the owner
