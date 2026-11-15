@@ -67,6 +67,10 @@ class WikiSearchActivity : public Activity {
   void fetchMoreResults();
   void openArticle(const char* title, uint64_t offset, bool fromSearchResults = false);
   void openSearchMenuPopup();
+  // Back to the "Choose .img file" screen (Back long-press / hint-bar hold / menu entry).
+  void returnToSetup();
+  // Touch boards: taps and holds on the drawn hint bar act like the keys they label.
+  bool handleHintBarTouch();
   void openRecentActivity();
   void openRandomArticle();
   void openOnThisDayArticle();

@@ -84,5 +84,9 @@ class WikiReaderActivity final : public Activity {
   void onNextPage();
   void onPrevPage();
   void onBack();
+  // Left/Right keys and the matching hint buttons: step the link selection, crossing pages.
+  void moveLinkSelection(int dir);
+  // Back long-press and the matching hint-bar hold: leave the reader for the search screen.
+  void closeToSearch();
   void followLink(const std::string& href);
 };

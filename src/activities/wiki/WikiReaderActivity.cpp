@@ -940,6 +940,49 @@ void WikiReaderActivity::onBack() {
   finish();
 }
 
+void WikiReaderActivity::moveLinkSelection(const int dir) {
+  if (dir < 0) {
+    if (selectedLinkIndex_ > 0) {
+      selectedLinkIndex_--;
+      if (pendingImageRender_) {
+        imageDecodeReadyAtMs_ = millis() + IMAGE_DECODE_DEBOUNCE_MS;
+      }
+      syncResumeStateToConfig();
+      requestUpdate();
+    } else if (currentPage_ > 0) {
+      onPrevPage();
+      if (!pageLinks_.empty()) {
+        selectedLinkIndex_ = pageLinks_.size() - 1;
+        syncResumeStateToConfig();
+      }
+    }
+    return;
+  }
+  if (selectedLinkIndex_ >= 0 && selectedLinkIndex_ + 1 < static_cast<int>(pageLinks_.size())) {
+    selectedLinkIndex_++;
+    if (pendingImageRender_) {
+      imageDecodeReadyAtMs_ = millis() + IMAGE_DECODE_DEBOUNCE_MS;
+    }
+    syncResumeStateToConfig();
+    requestUpdate();
+  } else {
+    int oldPage = currentPage_;
+    onNextPage();
+    if (currentPage_ != oldPage && !pageLinks_.empty()) {
+      selectedLinkIndex_ = 0;
+      syncResumeStateToConfig();
+    }
+  }
+}
+
+void WikiReaderActivity::closeToSearch() {
+  closedByUser_ = true;
+  ActivityResult result;
+  result.isCancelled = false;
+  setResult(std::move(result));
+  finish();
+}
+
 void WikiReaderActivity::followLink(const std::string& rawHref) {
   if (rawHref.find("TABLE:") == 0 || rawHref.find("CLADE:") == 0) {
       showTableViewer(rawHref);
@@ -1054,9 +1097,32 @@ void WikiReaderActivity::loop() {
   int lpy = 0;
   const bool touchLongPress = mappedInput.wasScreenLongPress(lpx, lpy);
 
+  if (touchLongPress && WikiGUI::hintButtonAt(renderer, lpx, lpy) == 0) {
+    closeToSearch();
+    return;
+  }
+
   if (!touchLongPress && mappedInput.wasScreenTapped(tx, ty)) {
     if (ty < metrics.topPadding + metrics.headerHeight) {
       onBack();
+      return;
+    }
+    // Taps on the drawn hint bar act like the keys they label.
+    const int hintButton = WikiGUI::hintButtonAt(renderer, tx, ty);
+    if (hintButton == 0) {
+      onBack();
+      return;
+    }
+    if (hintButton == 1) {
+      if (selectedLinkIndex_ >= 0 && selectedLinkIndex_ < static_cast<int>(pageLinks_.size())) {
+        const auto& pl = pageLinks_[selectedLinkIndex_];
+        const std::string href(&hrefPool_[pl.hrefOffset], pl.hrefLen);
+        followLink(href);
+      }
+      return;
+    }
+    if (hintButton == 2 || hintButton == 3) {
+      moveLinkSelection(hintButton == 2 ? -1 : 1);
       return;
     }
     // Links first: pad each rect a little so a fingertip can hit a single word.
@@ -1098,39 +1164,12 @@ void WikiReaderActivity::loop() {
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Left)) {
-    if (selectedLinkIndex_ > 0) {
-        selectedLinkIndex_--;
-        if (pendingImageRender_) {
-            imageDecodeReadyAtMs_ = millis() + IMAGE_DECODE_DEBOUNCE_MS;
-        }
-        syncResumeStateToConfig();
-        requestUpdate();
-    } else if (currentPage_ > 0) {
-        onPrevPage();
-        if (!pageLinks_.empty()) {
-            selectedLinkIndex_ = pageLinks_.size() - 1;
-            syncResumeStateToConfig();
-        }
-    }
+    moveLinkSelection(-1);
     return;
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-    if (selectedLinkIndex_ >= 0 && selectedLinkIndex_ + 1 < static_cast<int>(pageLinks_.size())) {
-        selectedLinkIndex_++;
-        if (pendingImageRender_) {
-            imageDecodeReadyAtMs_ = millis() + IMAGE_DECODE_DEBOUNCE_MS;
-        }
-        syncResumeStateToConfig();
-        requestUpdate();
-    } else {
-        int oldPage = currentPage_;
-        onNextPage();
-        if (currentPage_ != oldPage && !pageLinks_.empty()) {
-            selectedLinkIndex_ = 0;
-            syncResumeStateToConfig();
-        }
-    }
+    moveLinkSelection(1);
     return;
   }
 
@@ -1179,11 +1218,7 @@ void WikiReaderActivity::loop() {
 
   if (mappedInput.wasLongPressed(MappedInputManager::Button::Back, 500)) {
     mappedInput.consumeSuppressedRelease();
-    closedByUser_ = true;
-    ActivityResult result;
-    result.isCancelled = false;
-    setResult(std::move(result));
-    finish();
+    closeToSearch();
     return;
   }
 

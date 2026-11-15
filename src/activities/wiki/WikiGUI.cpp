@@ -58,4 +58,18 @@ void drawDoubleButtonHints(GfxRenderer& renderer, const ButtonHint& btn1, const 
     renderer.setOrientation(orig_orientation);
 }
 
+int hintButtonAt(const GfxRenderer& renderer, const int x, const int y) {
+    const int pageHeight = renderer.getScreenHeight();
+    const int screenWidth = renderer.getScreenWidth();
+    if (y < pageHeight - WIKI_HINTS_HEIGHT) return -1;
+    constexpr int buttonWidth = 118;
+    constexpr int narrowButtonPositions[] = {1, 121, 241, 361};
+    constexpr int wideButtonPositions[] = {8, 140, 272, 404};
+    const int* buttonPositions = screenWidth >= 528 ? wideButtonPositions : narrowButtonPositions;
+    for (int i = 0; i < 4; i++) {
+        if (x >= buttonPositions[i] && x < buttonPositions[i] + buttonWidth) return i;
+    }
+    return -1;
+}
+
 }

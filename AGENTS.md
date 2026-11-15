@@ -96,6 +96,10 @@ notes differ from the upstream rules above, these notes win for this fork.
     `ReaderUtils::detectPageTurn`. With every row on Default the module is
     inert and the stock mapping runs. Settings `side{Left,Right}{Tap,
     DoubleTap,LongPress}Action`.
+  - Wiki screens on touch boards: the drawn four-button hint bar is live
+    (`WikiGUI::hintButtonAt`): a tap acts like the key it labels and a hold
+    like the key's hold action (search: hold Back = "Choose .img file", also
+    in the "..." menu; reader: hold Back = back to search).
   - On the carousel home a horizontal swipe that starts on the covers or the
     icon strip is never treated as the Back swipe (stock Home maps Back to
     "resume the latest book").

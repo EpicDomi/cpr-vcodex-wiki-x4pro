@@ -13,4 +13,8 @@ constexpr int WIKI_HINTS_HEIGHT = 46;
 
 void drawDoubleButtonHints(GfxRenderer& renderer, const ButtonHint& btn1, const ButtonHint& btn2, const ButtonHint& btn3, const ButtonHint& btn4);
 
+// Touch boards: which of the four hint buttons (0..3) a logical point lies on, or -1.
+// Same geometry as drawDoubleButtonHints.
+int hintButtonAt(const GfxRenderer& renderer, int x, int y);
+
 }

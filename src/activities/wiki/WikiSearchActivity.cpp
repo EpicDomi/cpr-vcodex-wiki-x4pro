@@ -546,17 +546,84 @@ void WikiSearchActivity::openOnThisDayArticle() {
 }
 
 void WikiSearchActivity::openSearchMenuPopup() {
-  static constexpr const char* kOptions[] = {"Recent", "Random article", "On this day"};
-  optionPopup_.show("Wikipedia Menu", kOptions, 3, 0, [this](int selected) {
+  static constexpr const char* kOptions[] = {"Recent", "Random article", "On this day", "Change .img file"};
+  optionPopup_.show("Wikipedia Menu", kOptions, 4, 0, [this](int selected) {
     if (selected == 0) {
       openRecentActivity();
     } else if (selected == 1) {
       openRandomArticle();
     } else if (selected == 2) {
       openOnThisDayArticle();
+    } else if (selected == 3) {
+      returnToSetup();
     }
   });
   requestUpdate();
+}
+
+void WikiSearchActivity::returnToSetup() {
+  cancelPreviewTask();
+  reader_.unmount();
+  WikiConfig::clear();
+  rootSector_ = 0;
+  resultCount = 0;
+  selectedResultIndex = -1;
+  menuButtonSelected_ = false;
+  viewState_ = ViewState::NeedsScan;
+  requestUpdate();
+}
+
+bool WikiSearchActivity::handleHintBarTouch() {
+  if (!mappedInput.hasTouch()) return false;
+  const int pageHeight = renderer.getScreenHeight();
+  // A hold on the hint bar. Only consume the SDK long-press when it is on the
+  // bar: consuming it anywhere else would swallow the keyboard's own holds.
+  int hx = 0;
+  int hy = 0;
+  if (mappedInput.isScreenTouchHeld(hx, hy) && hy >= pageHeight - WikiGUI::WIKI_HINTS_HEIGHT) {
+    int lx = 0;
+    int ly = 0;
+    if (mappedInput.wasScreenLongPress(lx, ly)) {
+      const int button = WikiGUI::hintButtonAt(renderer, lx, ly);
+      if (button == 0 && viewState_ == ViewState::SearchReady) {
+        returnToSetup();
+      } else if (button == 2 && resultCount > 0) {
+        turnResultsPage(-1);
+        requestUpdate();
+      } else if (button == 3 && resultCount > 0) {
+        turnResultsPage(1);
+        requestUpdate();
+      }
+      return true;
+    }
+  }
+  int tx = 0;
+  int ty = 0;
+  if (!mappedInput.wasScreenTapped(tx, ty)) return false;
+  const int button = WikiGUI::hintButtonAt(renderer, tx, ty);
+  if (button < 0) return false;
+  if (button == 0) {
+    onCancel();
+    return true;
+  }
+  if (viewState_ != ViewState::SearchReady) return true;
+  if (button == 1) {
+    if (menuButtonSelected_ && text.empty()) {
+      openSearchMenuPopup();
+    } else if (selectedResultIndex >= 0 && selectedResultIndex < resultCount && selectedResultIndex < 60) {
+      openArticle(searchResults[selectedResultIndex].title, searchResults[selectedResultIndex].offset, true);
+    } else if (const fui::KeyboardKey* selKey = selectedKey()) {
+      if (activateValue(selKey->value, false)) requestUpdate();
+    }
+    return true;
+  }
+  if (resultCount > 0) {
+    turnResultsPage(button == 2 ? -1 : 1);
+  } else {
+    moveSelectionCol(button == 2 ? -1 : 1);
+  }
+  requestUpdate();
+  return true;
 }
 
 void WikiSearchActivity::onCancel() {
@@ -590,6 +657,7 @@ void WikiSearchActivity::loop() {
   }
 
   const auto& metrics = UITheme::getInstance().getMetrics();
+  if (handleHintBarTouch()) return;
   int tx = 0;
   int ty = 0;
   if (mappedInput.wasScreenTapped(tx, ty) && ty < metrics.topPadding + metrics.headerHeight) {
@@ -828,15 +896,7 @@ void WikiSearchActivity::loop() {
 
   if (mappedInput.wasLongPressed(MappedInputManager::Button::Back, 600)) {
     mappedInput.consumeSuppressedRelease();
-    cancelPreviewTask();
-    reader_.unmount();
-    WikiConfig::clear();
-    rootSector_ = 0;
-    resultCount = 0;
-    selectedResultIndex = -1;
-    menuButtonSelected_ = false;
-    viewState_ = ViewState::NeedsScan;
-    requestUpdate();
+    returnToSetup();
     return;
   }
 
