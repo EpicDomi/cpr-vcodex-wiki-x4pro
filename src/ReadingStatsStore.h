@@ -94,6 +94,11 @@ class ReadingStatsStore {
   mutable unsigned long lastSaveMs = 0;
   mutable bool persistenceSuspended = false;
   mutable bool skippedSaveLogged = false;
+  // Fork: true while releaseMemoryForNetwork() has emptied the in-memory stats.
+  // Until they are loaded again nothing may be written to the main file, or the
+  // emptied copy would replace the real one.
+  bool releasedForNetwork = false;
+  mutable bool releasedSaveLogged = false;
   mutable bool internalBackupPrepared = false;
 
   friend bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore&, const char*);
@@ -192,6 +197,8 @@ class ReadingStatsStore {
   void markLoadSkippedForRecovery();
   bool releaseMemoryForNetwork();
   bool reloadAfterNetwork();
+  // Fork: see releasedForNetwork.
+  bool isReleasedForNetwork() const { return releasedForNetwork; }
 };
 
 #define READING_STATS ReadingStatsStore::getInstance()

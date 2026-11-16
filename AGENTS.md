@@ -96,6 +96,15 @@ notes differ from the upstream rules above, these notes win for this fork.
     `ReaderUtils::detectPageTurn`. With every row on Default the module is
     inert and the stock mapping runs. Settings `side{Left,Right}{Tap,
     DoubleTap,LongPress}Action`.
+  - Reading stats and Wi-Fi on touch boards. Wi-Fi screens empty the stats
+    from memory (`NetworkMemory::prepareBeforeNetwork`) and rely on the
+    `silentRestart()` reboot at exit to reload them, but touch boards skip
+    that reboot (`finishWifiSessionWithoutRestart`). Upstream never reloaded
+    there, so the next save replaced `reading_stats.json` with the emptied
+    copy. Three guards, keep all of them through merges: the reload in
+    `finishWifiSessionWithoutRestart`, the main-loop safety net (released
+    and Wi-Fi off), and `ReadingStatsStore::releasedForNetwork`, which blocks
+    saves of the main file while released and reloads on `beginSession`.
   - Wiki screens on touch boards: the drawn four-button hint bar is live
     (`WikiGUI::hintButtonAt`): a tap acts like the key it labels and a hold
     like the key's hold action (search: hold Back = "Choose .img file", also

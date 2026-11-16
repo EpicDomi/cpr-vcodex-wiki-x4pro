@@ -60,6 +60,7 @@
 #include "util/BootRecovery.h"
 #include "util/ButtonNavigator.h"
 #include "util/CprVcodexLogs.h"
+#include "util/NetworkMemory.h"
 #include "util/PluginEvents.h"
 #include "util/ScreenshotUtil.h"
 #include "util/TimeUtils.h"
@@ -254,6 +255,11 @@ static bool finishWifiSessionWithoutRestart() {
   if (esp_sntp_enabled()) esp_sntp_stop();
   WiFi.mode(WIFI_OFF);
   delay(100);
+  // Fork: other boards reboot here and setup() reloads what the Wi-Fi session
+  // released (NetworkMemory::prepareBeforeNetwork). Ending the session in place
+  // has to reload it, or the emptied reading stats stay in memory and the next
+  // save replaces the real file with them.
+  NetworkMemory::restoreAfterNetwork(renderer, "MAIN", "wifi-session-end", READING_STATS.isReleasedForNetwork());
   return true;
 }
 #endif
@@ -1046,6 +1052,14 @@ void loop() {
   gpio.setSharedConfirmPowerShortPressEmitsPower(SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
   mappedInputManager.update();
   mappedInputManager.applyReaderSideButtons();  // Fork: src/fork/ReaderSideButtons
+
+#if FREEINK_CAP_TOUCH
+  // Fork safety net for boards that end Wi-Fi sessions without a reboot: stats
+  // still released once Wi-Fi is off means some exit path skipped the reload.
+  if (BoardConfig::hasTouch() && READING_STATS.isReleasedForNetwork() && WiFi.getMode() == WIFI_MODE_NULL) {
+    NetworkMemory::restoreAfterNetwork(renderer, "MAIN", "released-without-wifi", true);
+  }
+#endif
 
   if (activityManager.requiresExclusiveStorageLoop()) {
     // USB Drive handed the raw SD card to the host. Do not run screenshots,
