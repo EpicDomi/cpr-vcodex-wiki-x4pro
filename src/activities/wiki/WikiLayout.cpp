@@ -268,6 +268,9 @@ class Flow {
     x_ = x;
     width_ = std::max<int16_t>(width, 8);
     align_ = align;
+    // Every Flow is a local declared after the lines it fills, so it never
+    // outlives them; cppcheck cannot see that across calls.
+    // cppcheck-suppress danglingLifetime
     out_ = out;
     line_.clear();
     word_.clear();
