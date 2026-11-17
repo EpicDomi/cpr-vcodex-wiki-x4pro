@@ -50,10 +50,10 @@ jobs:
           if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
             git fetch --depth=1 origin "${GITHUB_BASE_REF}"
             files="$(git diff --name-only --diff-filter=ACMRT "origin/${GITHUB_BASE_REF}...HEAD" -- '*.c' '*.cpp' '*.h' '*.hpp' \
-              | grep -v -E '^(lib/EpdFont/builtinFonts/|lib/Epub/Epub/hyphenation/generated/|lib/uzlib/|src/activities/wiki/)' || true)"
+              | grep -v -E '^(lib/EpdFont/builtinFonts/|lib/Epub/Epub/hyphenation/generated/|lib/uzlib/|lib/zstd/)' || true)"
           else
             files="$(git diff --name-only --diff-filter=ACMRT HEAD~1..HEAD -- '*.c' '*.cpp' '*.h' '*.hpp' \
-              | grep -v -E '^(lib/EpdFont/builtinFonts/|lib/Epub/Epub/hyphenation/generated/|lib/uzlib/|src/activities/wiki/)' || true)"
+              | grep -v -E '^(lib/EpdFont/builtinFonts/|lib/Epub/Epub/hyphenation/generated/|lib/uzlib/|lib/zstd/)' || true)"
           fi
           if [ -n "${files}" ]; then
             printf '%s\n' "${files}" | xargs -r /usr/lib/llvm-21/bin/clang-format -style=file -i

@@ -1,0 +1,21 @@
+{
+  "name": "zstd",
+  "version": "1.5.7",
+  "description": "Zstandard, decompression only (lib/common and lib/decompress of zstd 1.5.7), for XWA archives on the X4 Pro",
+  "license": "BSD-3-Clause",
+  "frameworks": "*",
+  "platforms": "*",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src",
+    "flags": [
+      "-DZSTD_LEGACY_SUPPORT=0",
+      "-DZSTD_DISABLE_ASM",
+      "-DZSTD_TRACE=0",
+      "-DZSTD_STRIP_ERROR_STRINGS",
+      "-DXXH_NAMESPACE=ZSTD_",
+      "-DDEBUGLEVEL=0",
+      "-O2"
+    ]
+  }
+}
