@@ -11,7 +11,6 @@
 // when the board has it (fiFontMalloc), falling back to the internal heap
 // otherwise — so the built-in compressed fonts get the same lift as the SD and
 // vector paths. fiFontFree releases either region.
-FontDecompressor::ScratchProviderFn FontDecompressor::scratchProvider_ = nullptr;
 
 FontDecompressor::~FontDecompressor() { deinit(); }
 
@@ -45,9 +44,6 @@ void FontDecompressor::freeHotGroup() {
   hotGroupCapacity = 0;
   hotGroupFont = nullptr;
   hotGroupIndex = UINT16_MAX;
-  scratchGroupFont = nullptr;
-  scratchGroupIndex = UINT16_MAX;
-  scratchGroupGen = 0;
   fiFontFree(hotGlyphBuf);
   hotGlyphBuf = nullptr;
   hotGlyphBufCapacity = 0;
@@ -191,63 +187,36 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
     return nullptr;
   }
 
-  const uint8_t* activeGroupBuf = hotGroup;
-
   // Check if hot group already has this group decompressed — if not, decompress it
   if (!(hotGroup != nullptr && hotGroupFont == fontData && hotGroupIndex == groupIndex)) {
+    stats.cacheMisses++;
     const EpdFontGroup& group = fontData->groups[groupIndex];
 
-    // Prefer sharedScratch (45KB WikiScratchBuffer) whenever available so we don't allocate
-    // a redundant 25-30KB hotGroup on the heap while WikiScratchBuffer is resident.
-    uint32_t curScratchGen = 0;
-    uint8_t* sharedScratch = scratchProvider_ ? scratchProvider_(group.uncompressedSize, &curScratchGen) : nullptr;
-    if (sharedScratch && scratchGroupFont == fontData && scratchGroupIndex == groupIndex &&
-        scratchGroupGen == curScratchGen) {
-      stats.cacheHits++;
-      activeGroupBuf = sharedScratch;
-    } else if (sharedScratch) {
-      stats.cacheMisses++;
-      if (hotGroup) {
-        fiFontFree(hotGroup);
-        hotGroup = nullptr;
-        hotGroupCapacity = 0;
-        hotGroupFont = nullptr;
-        hotGroupIndex = UINT16_MAX;
-      }
-      if (!decompressGroup(fontData, groupIndex, sharedScratch, group.uncompressedSize)) {
-        stats.getBitmapTimeUs += micros() - tStart;
-        return nullptr;
-      }
-      scratchGroupFont = fontData;
-      scratchGroupIndex = groupIndex;
-      scratchGroupGen = curScratchGen;
-      activeGroupBuf = sharedScratch;
-    } else {
-      stats.cacheMisses++;
-      // ensureCapacity may free the buffer, so the cached-group identity dies with it either way.
-      hotGroupFont = nullptr;
-      hotGroupIndex = UINT16_MAX;
-      bool hotGroupOk = ensureCapacity(hotGroup, hotGroupCapacity, group.uncompressedSize);
-      if (!hotGroupOk && pageSlotCount > 0) {
-        LOG_DBG("FDC", "Releasing page font cache to retry %u-byte hot group", group.uncompressedSize);
-        freePageBuffer();
-        hotGroupOk = ensureCapacity(hotGroup, hotGroupCapacity, group.uncompressedSize);
-      }
-      if (!hotGroupOk) {
-        LOG_ERR("FDC", "Failed to allocate %u bytes for hot group %u (free=%u maxAlloc=%u)", group.uncompressedSize,
-                groupIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-        stats.getBitmapTimeUs += micros() - tStart;
-        return nullptr;
-      }
-      if (!decompressGroup(fontData, groupIndex, hotGroup, group.uncompressedSize)) {
-        stats.getBitmapTimeUs += micros() - tStart;
-        return nullptr;
-      }
-      hotGroupFont = fontData;
-      hotGroupIndex = groupIndex;
-      stats.hotGroupBytes = group.uncompressedSize;
-      activeGroupBuf = hotGroup;
+    // ensureCapacity may free the buffer, so the cached-group identity dies with it either way.
+    hotGroupFont = nullptr;
+    hotGroupIndex = UINT16_MAX;
+    bool hotGroupOk = ensureCapacity(hotGroup, hotGroupCapacity, group.uncompressedSize);
+    if (!hotGroupOk && pageSlotCount > 0) {
+      // Fork: the page cache is rebuildable; release it and retry before giving up on the glyph.
+      LOG_DBG("FDC", "Releasing page font cache to retry %u-byte hot group", group.uncompressedSize);
+      freePageBuffer();
+      hotGroupOk = ensureCapacity(hotGroup, hotGroupCapacity, group.uncompressedSize);
     }
+    if (!hotGroupOk) {
+      LOG_ERR("FDC", "Failed to allocate %u bytes for hot group %u (free=%u maxAlloc=%u)", group.uncompressedSize,
+              groupIndex, ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      stats.getBitmapTimeUs += micros() - tStart;
+      return nullptr;
+    }
+
+    if (!decompressGroup(fontData, groupIndex, hotGroup, group.uncompressedSize)) {
+      stats.getBitmapTimeUs += micros() - tStart;
+      return nullptr;
+    }
+
+    hotGroupFont = fontData;
+    hotGroupIndex = groupIndex;
+    stats.hotGroupBytes = group.uncompressedSize;
   } else {
     stats.cacheHits++;
   }
@@ -260,7 +229,7 @@ const uint8_t* FontDecompressor::getBitmap(const EpdFontData* fontData, const Ep
   }
 
   uint32_t alignedOff = getAlignedOffset(fontData, groupIndex, glyphIndex);
-  compactSingleGlyph(&activeGroupBuf[alignedOff], hotGlyphBuf, glyph->width, glyph->height);
+  compactSingleGlyph(&hotGroup[alignedOff], hotGlyphBuf, glyph->width, glyph->height);
   stats.getBitmapTimeUs += micros() - tStart;
   return hotGlyphBuf;
 }
@@ -513,16 +482,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     uint16_t groupIdx = neededGroups[g];
     const EpdFontGroup& group = fontData->groups[groupIdx];
 
-    bool tempOwned = false;
-    uint32_t curGen = 0;
-    uint8_t* tempBuf = scratchProvider_ ? scratchProvider_(group.uncompressedSize, &curGen) : nullptr;
-    if (tempBuf) {
-      scratchGroupFont = nullptr;
-      scratchGroupIndex = UINT16_MAX;
-    } else {
-      tempBuf = static_cast<uint8_t*>(fiFontMalloc(group.uncompressedSize));
-      tempOwned = (tempBuf != nullptr);
-    }
+    auto* tempBuf = static_cast<uint8_t*>(fiFontMalloc(group.uncompressedSize));
     if (!tempBuf) {
       LOG_ERR("FDC", "Failed to allocate temp buffer (%u bytes) for group %u", group.uncompressedSize, groupIdx);
       missed++;
@@ -533,7 +493,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     }
 
     if (!decompressGroup(fontData, groupIdx, tempBuf, group.uncompressedSize)) {
-      if (tempOwned) fiFontFree(tempBuf);
+      fiFontFree(tempBuf);
       missed++;
       continue;
     }
@@ -550,7 +510,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
       writeOffset += glyph.dataLength;
     }
 
-    if (tempOwned) fiFontFree(tempBuf);
+    fiFontFree(tempBuf);
   }
 
   LOG_DBG("FDC", "Prewarm: %u glyphs in %u bytes from %u groups (%d missed)", glyphCount, writeOffset, groupCount,

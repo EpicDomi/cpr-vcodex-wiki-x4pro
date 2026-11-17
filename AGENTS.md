@@ -50,17 +50,19 @@ skill from `.agents/skills/`; for deeper project details, read the linked
   published GitHub release asset, not from an arbitrary local build. Auto
   Flash must default to X4 and reject X4 Pro regardless of stale metadata.
 
-## Fork Notes (Offline Wikipedia, X4 Pro)
+## Fork Notes (Offline wiki, X4 Pro)
 
-This repository is a personal fork: CPR-vCodex plus Metske's offline Wikipedia
-reader (`src/activities/wiki/`), maintained for an Xteink X4 Pro. Where these
-notes differ from the upstream rules above, these notes win for this fork.
+This repository is a personal fork: CPR-vCodex plus an offline wiki reader
+(`lib/Xwa`, `src/activities/wiki/`) for XWA archives made by
+`EpicDomi/xwa-tool`, maintained for an Xteink X4 Pro. Where these notes differ
+from the upstream rules above, these notes win for this fork.
 
-- Default branch is `main`. Upstream is `franssjz/cpr-vcodex` (`master`); the
-  wiki code comes from `Metske/cpr-vcodex-wiki` (`main`), a snapshot of upstream
+- Default branch is `main`. Upstream is `franssjz/cpr-vcodex` (`master`). The
+  fork began as `Metske/cpr-vcodex-wiki` (`main`), a snapshot of upstream
   commit `a4ae01a` (just after `1.6.0.38-cpr-vcodex`) published without shared
-  git history. A history-join commit records that ancestry, so upstream updates
-  are ordinary merges: `git fetch https://github.com/franssjz/cpr-vcodex master`
+  git history; its `.img` wiki has since been replaced by the XWA wiki below. A
+  history-join commit records that ancestry, so upstream updates are ordinary
+  merges: `git fetch https://github.com/franssjz/cpr-vcodex master`
   then `git merge FETCH_HEAD`. Last merged upstream commit: `6bde1d6`
   (1.6.5.7 + 3). The 1.6.0.38-based wiki build is the merge of pull request 1.
 - Expect conflicts only where a wiki hook sits beside an upstream addition
@@ -68,16 +70,23 @@ notes differ from the upstream rules above, these notes win for this fork.
   load/save, icon tables, the Apps/Home shortcut switches). Keep both sides.
   Then rebuild `x4pro-gh_release_rc`, run the native tests, and smoke-test the
   wiki in the simulator (`agent-docs/simulator.md`).
-- Original X4/X3 (ESP32-C3): with the wiki included, current upstream no longer
-  fits the 6,553,600-byte C3 slot (`gh_release` was 6,583,335 bytes at
-  `6bde1d6`). This fork targets the X4 Pro; do not trim upstream features to
-  make the C3 image fit without asking the owner.
-- Keep the wiki isolated: wiki code lives in `src/activities/wiki/`, and hooks
-  into upstream files stay as small as possible so upstream merges stay easy.
-  Metske's non-wiki changes (EPUB exact page counts, image tone curves, build
-  workarounds) were deliberately removed; do not re-import them with wiki
-  updates. `src/activities/wiki/` keeps Metske's formatting and is excluded from
-  the CI clang-format check.
+- Original X4/X3 (ESP32-C3): with the XWA wiki the C3 image fits again
+  (`gh_release` 6,378,159 of 6,553,600 bytes; the `.img` wiki left it at
+  6,590,591). The C3 reads compact-profile archives only (no zstd); this fork
+  still targets the X4 Pro first. Do not trim upstream features to make the C3
+  image fit without asking the owner.
+- Keep the wiki isolated: the format reader is `lib/Xwa` (no UI, host-tested in
+  `test/xwa` against archives written by xwa-tool's own writer; the generator
+  is `test/xwa/gen`), the screens are `src/activities/wiki/`, and hooks into
+  upstream files stay as small as possible so upstream merges stay easy:
+  Home/Apps shortcut, the EPUB reader's wiki search and word lookup, `.xwa` in
+  the file browser and `ReaderActivity`, `KeyboardResult::suggestion` and the
+  optional `KeyboardSuggestions` rows of `KeyboardEntryActivity` (live search),
+  and `WikiLinkResult` in `ActivityResult.h`. `lib/zstd` is zstd 1.5.7's
+  decompressor, vendored unchanged and excluded from the format check.
+- The XWA format is defined by xwa-tool's `docs/format-spec-v0.md` (version
+  0.3). Change the reader only with the spec; regenerate `test/xwa/data` with
+  `test/xwa/gen` (pinned to an xwa-tool commit) when the format moves.
 - Fork-only features outside the wiki live in `src/fork/` and `lib/PerfLog/`,
   again with one-line hooks in upstream files (each marked `Fork:`):
   - Reader light controls (`src/fork/ReaderLightControls`): in a book, a
@@ -105,10 +114,6 @@ notes differ from the upstream rules above, these notes win for this fork.
     `finishWifiSessionWithoutRestart`, the main-loop safety net (released
     and Wi-Fi off), and `ReadingStatsStore::releasedForNetwork`, which blocks
     saves of the main file while released and reloads on `beginSession`.
-  - Wiki screens on touch boards: the drawn four-button hint bar is live
-    (`WikiGUI::hintButtonAt`): a tap acts like the key it labels and a hold
-    like the key's hold action (search: hold Back = "Choose .img file", also
-    in the "..." menu; reader: hold Back = back to search).
   - On the carousel home a horizontal swipe that starts on the covers or the
     icon strip is never treated as the Back swipe (stock Home maps Back to
     "resume the latest book").
@@ -139,9 +144,12 @@ notes differ from the upstream rules above, these notes win for this fork.
 - Flash X4 Pro test builds as the app image only (offset `0x10000`,
   `partitions_x4pro.csv` unchanged). Never ask for a bootloader or partition
   table flash without explaining why and how to recover.
-- The wiki reads the `.img` archive through raw SD sectors
-  (`SdRawReader`) under `HalStorage::RawAccessLock`. The `.img` layout (`CPR1`
-  footer, 32 KB gzip clusters) must stay compatible with `xt-zim-imager`.
+- The wiki reads archives in `/wiki/*.xwa` through raw SD sectors
+  (`WikiSource`) under `HalStorage::RawAccessLock`: the file's clusters are
+  mapped once (cached as `/.crosspoint/wiki/<name>.map`) and checked against
+  ordinary file reads before use, so fragmented files work too; without a map
+  it reads through the file. Per-archive state (resume, back trail, recent
+  articles) is `/.crosspoint/wiki/<name>.state`.
 
 ## Quick Commands
 

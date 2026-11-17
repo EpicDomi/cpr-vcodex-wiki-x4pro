@@ -17,7 +17,7 @@
 #include "DictionarySuggestionsActivity.h"
 #include "HapticFeedback.h"
 #include "MappedInputManager.h"
-#include "activities/wiki/WikiSearchActivity.h"
+#include "activities/wiki/WikiActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -480,7 +480,7 @@ void DictionaryWordSelectActivity::lookupSelectedWord() {
   }
 
   if (isWikiLookup_) {
-    startActivityForResult(std::make_unique<WikiSearchActivity>(renderer, mappedInput, query),
+    startActivityForResult(std::make_unique<WikiActivity>(renderer, mappedInput, query),
                            [this](const ActivityResult& result) {
                              if (!result.isCancelled) {
                                setResult(ActivityResult{});

@@ -47,7 +47,7 @@
 #include "activities/plugins/PluginCatalogActivity.h"  // anyPluginInstalled()
 #include "activities/settings/ClockSyncActivity.h"
 #include "activities/util/ConfirmationActivity.h"
-#include "activities/wiki/WikiSearchActivity.h"
+#include "activities/wiki/WikiActivity.h"
 #include "components/UITheme.h"
 #include "components/themes/lyra/LyraCarouselTheme.h"
 #include "fontIds.h"
@@ -1566,7 +1566,7 @@ void HomeActivity::activateSelection() {
         break;
       case ShortcutId::Wiki:
         freeCoverBuffer();
-        startActivityForResult(std::make_unique<WikiSearchActivity>(renderer, mappedInput),
+        startActivityForResult(std::make_unique<WikiActivity>(renderer, mappedInput),
                                [this](const ActivityResult&) { requestFreshHomeRender(true); });
         break;
     }

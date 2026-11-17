@@ -56,7 +56,7 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/settings/TextSettingsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
-#include "activities/wiki/WikiSearchActivity.h"
+#include "activities/wiki/WikiActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/AchievementPopupUtils.h"
@@ -763,12 +763,11 @@ void EpubReaderActivity::openWikiSearch(const std::string& query) {
     fcm->clearCache();
   }
   READING_STATS.noteActivity();
-  startActivityForResult(std::make_unique<WikiSearchActivity>(renderer, mappedInput, query),
-                         [this](const ActivityResult&) {
-                           READING_STATS.resumeSession();
-                           ReaderUtils::requestReaderUiTransitionRefresh(renderer);
-                           requestUpdate();
-                         });
+  startActivityForResult(std::make_unique<WikiActivity>(renderer, mappedInput, query), [this](const ActivityResult&) {
+    READING_STATS.resumeSession();
+    ReaderUtils::requestReaderUiTransitionRefresh(renderer);
+    requestUpdate();
+  });
 }
 
 // Fork page-mark toggle (long Confirm press / toolbar), with the achievement hook.

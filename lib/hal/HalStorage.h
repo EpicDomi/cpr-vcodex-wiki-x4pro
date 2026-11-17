@@ -76,7 +76,7 @@ class HalStorage {
   class StorageLock;  // private class, used internally
 
   // Offline Wikipedia: holds the storage mutex for code that reads the SD block
-  // device directly instead of through HalFile (src/activities/wiki/SdRawReader).
+  // device directly instead of through HalFile (src/activities/wiki/WikiSource).
   // Recursive with StorageLock, so it may wrap ordinary Storage calls too.
   class RawAccessLock {
    public:

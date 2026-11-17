@@ -15,6 +15,7 @@ struct WifiResult {
 
 struct KeyboardResult {
   std::string text;
+  int suggestion = -1;  // a live suggestion chosen instead of OK
 };
 
 struct MenuResult {
@@ -90,6 +91,13 @@ struct FilePathResult {
   std::string path;
 };
 
+// A link chosen in a wiki viewer (table cells): the reader follows it.
+struct WikiLinkResult {
+  uint32_t article = 0;
+  uint32_t place = 0;  // section index, or an anchor hash when `anchored`
+  bool anchored = false;
+};
+
 struct FlashcardSessionResult {
   std::string deckId;
   std::string deckPath;
@@ -112,7 +120,7 @@ struct FlashcardSessionResult {
 using ResultVariant =
     std::variant<std::monostate, WifiResult, KeyboardResult, MenuResult, ChapterResult, PercentResult, IntervalResult,
                  PageResult, BookmarkResult, HighlightResult, SyncResult, ProgressChangeResult, NetworkModeResult,
-                 FootnoteResult, FilePathResult, FlashcardSessionResult>;
+                 FootnoteResult, FilePathResult, FlashcardSessionResult, WikiLinkResult>;
 
 struct ActivityResult {
   bool isCancelled = false;

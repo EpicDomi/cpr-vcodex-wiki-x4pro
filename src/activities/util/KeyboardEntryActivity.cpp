@@ -542,7 +542,91 @@ fui::Rect KeyboardEntryActivity::keyboardRect() const {
                    static_cast<int16_t>(hasTouch ? pageHeight - y : height)};
 }
 
+bool KeyboardEntryActivity::handleSuggestionInput() {
+  const int shown = suggestShown.load();
+  const int top = suggestTop.load();
+  const int rowH = suggestRowH.load();
+  auto choose = [this](int index) {
+    setResult(KeyboardResult{text, index});
+    finish();
+  };
+  int tx = 0;
+  int ty = 0;
+  if (shown > 0 && rowH > 0 && mappedInput.wasScreenTapped(tx, ty) && ty >= top && ty < top + shown * rowH) {
+    haptic_feedback::touchAction();
+    choose((ty - top) / rowH);
+    return true;
+  }
+  if (suggestionSel >= 0) {
+    // Buttons move through the rows; Down past the last returns to the keys.
+    if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+      if (suggestionSel > 0) suggestionSel--;
+      requestUpdate();
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
+      suggestionSel = suggestionSel + 1 < shown ? suggestionSel + 1 : -1;
+      requestUpdate();
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      if (suggestionSel < shown) {
+        choose(suggestionSel);
+      } else {
+        suggestionSel = -1;
+      }
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      suggestionSel = -1;
+      requestUpdate();
+    }
+    return true;
+  }
+  // Up from the top row of keys moves into the rows, starting nearest.
+  if (!cursorMode && selRow == 0 && shown > 0 && !upLongHandled &&
+      mappedInput.wasReleased(MappedInputManager::Button::Up)) {
+    suggestionSel = shown - 1;
+    upHeld = false;
+    requestUpdate();
+    return true;
+  }
+  return false;
+}
+
+void KeyboardEntryActivity::drawSuggestions(const int top, const int bottom, const int left, const int width) {
+  if (!suggestionsFresh || suggestedText != text) {
+    suggestions->update(text);
+    suggestedText = text;
+    suggestionsFresh = true;
+    suggestionSel = -1;
+  }
+  const int lh = renderer.getLineHeight(UI_12_FONT_ID);
+  const int smallLh = renderer.getLineHeight(SMALL_FONT_ID);
+  const int rowH = lh + 14;
+  const int rows = std::max(0, std::min(suggestions->count(), (bottom - top) / rowH));
+  suggestTop = static_cast<int16_t>(top);
+  suggestRowH = static_cast<int16_t>(rowH);
+  suggestShown = static_cast<int16_t>(rows);
+  const int pad = 12;
+  for (int i = 0; i < rows; i++) {
+    const int y = top + i * rowH;
+    const bool selected = i == suggestionSel;
+    if (selected) renderer.fillRect(left, y, width, rowH, true);
+    const char* detail = suggestions->detail(i);
+    int detailW = 0;
+    std::string detailText;
+    if (detail && *detail) {
+      detailText = renderer.truncatedText(SMALL_FONT_ID, detail, width / 2);
+      detailW = renderer.getTextWidth(SMALL_FONT_ID, detailText.c_str()) + pad;
+    }
+    const std::string label = renderer.truncatedText(UI_12_FONT_ID, suggestions->label(i), width - 2 * pad - detailW);
+    renderer.drawText(UI_12_FONT_ID, left + pad, y + (rowH - lh) / 2, label.c_str(), !selected);
+    if (detailW > 0) {
+      renderer.drawText(SMALL_FONT_ID, left + width - pad - detailW + pad, y + (rowH - smallLh) / 2, detailText.c_str(),
+                        !selected);
+    }
+    if (!selected) renderer.drawLine(left + pad, y + rowH - 1, left + width - pad, y + rowH - 1, true);
+  }
+}
+
 void KeyboardEntryActivity::loop() {
+  if (suggestions && handleSuggestionInput()) return;
+
   int tx = 0;
   int ty = 0;
 
@@ -944,7 +1028,11 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   // Reserve cursor instructions even for an empty field; passwords need a second row.
   const int tipsTop = underlineBottom + (cursorMode ? (isPassword ? 2 : 1) * tipsLh : 0);
 
-  if (kbRect.y - tipsTop >= tipsHeight) {
+  if (suggestions) {
+    // Live results take the place of the typing tips.
+    drawSuggestions(underlineBottom + metrics.verticalSpacing, kbRect.y - metrics.verticalSpacing, content.x,
+                    content.width);
+  } else if (kbRect.y - tipsTop >= tipsHeight) {
     int y = tipsTop + (kbRect.y - tipsTop - tipsHeight) / 2;
     drawTip(tr(STR_KB_TIPS), y);
     y += tipsLh;

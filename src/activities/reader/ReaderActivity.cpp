@@ -21,7 +21,7 @@
 #include "XtcReaderActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/BmpViewerActivity.h"
-#include "activities/wiki/WikiSearchActivity.h"
+#include "activities/wiki/WikiActivity.h"
 #include "components/UITheme.h"
 
 std::unique_ptr<ReaderActivity> ReaderActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -178,15 +178,9 @@ void ReaderActivity::onGoToTxtReader(std::unique_ptr<Txt> txt) {
 void ReaderActivity::onEnter() {
   Activity::onEnter();
 
-  if (FsHelpers::checkFileExtension(initialBookPath, ".cfg") ||
-      FsHelpers::checkFileExtension(initialBookPath, ".img") ||
-      FsHelpers::checkFileExtension(initialBookPath, ".zim")) {
-    if (FsHelpers::checkFileExtension(initialBookPath, ".img") ||
-        FsHelpers::checkFileExtension(initialBookPath, ".zim")) {
-      WikiConfig::configureFromImageFile(initialBookPath);
-    }
-    activityManager.replaceActivity(
-        std::make_unique<WikiSearchActivity>(renderer, mappedInput, "", allowFastInitialRefresh));
+  if (FsHelpers::checkFileExtension(initialBookPath, ".xwa")) {
+    // A wiki archive opened from the file browser.
+    activityManager.replaceActivity(std::make_unique<WikiActivity>(renderer, mappedInput, "", initialBookPath));
     return;
   }
 

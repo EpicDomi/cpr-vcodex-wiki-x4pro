@@ -1,92 +1,96 @@
 #pragma once
-#include <cstdint>
-#include <string>
-#include <vector>
-#include "activities/Activity.h"
-#include "SdRawReader.h"
-#include "WikiHtmlToPlainText.h"
-#include "WikiSearchEngine.h"
-#include "WikiShared.h"
-#include "components/OptionPopup.h"
-#include <FreeInkUICore.h>
 
+#include <XwaContent.h>
+
+#include <memory>
+#include <vector>
+
+#include "WikiLayout.h"
+#include "WikiPicture.h"
+#include "WikiSearch.h"
+#include "WikiSession.h"
+#include "activities/Activity.h"
+
+// Reads articles: pages in the reader's font and settings, links followed
+// with a way back, contents, tables and pictures opened full screen.
 class WikiReaderActivity final : public Activity {
  public:
-  WikiReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                     std::string articleTitle, uint64_t articleOffset, uint32_t rootSector, uint32_t chunksSector);
+  // `place.pos` is a body position; with `anchor` set it is an anchor hash
+  // (or, with `section`, a section index) to find once the article is open.
+  struct Target {
+    WikiPlace place;
+    bool byAnchor = false;
+    bool bySection = false;
+  };
+
+  WikiReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::shared_ptr<WikiSession> session,
+                     Target start, std::vector<WikiPlace> trail = {});
   ~WikiReaderActivity() override;
-  void restorePageState(int pageIndex, int linkIndex, const std::vector<uint32_t>& offsets,
-                        bool allowFastInitialRefresh = false);
+
   void onEnter() override;
   void onExit() override;
   void loop() override;
-    void render(RenderLock&&) override;
-  [[nodiscard]] bool isReaderActivity() const override { return true; }
+  void render(RenderLock&&) override;
+  void prepareForSleep() override { remember(); }
+  bool isReaderActivity() const override { return true; }
+
  private:
-  WikiScratchScope scratchScope_;
-  OptionPopup optionPopup_;
-    struct HistoryEntry {
-      std::string title;
-      uint64_t offset;
-      int pageIndex = 0;
-      int linkIndex = -1;
+  enum Action : int64_t {
+    ACT_CONTENTS = 1,
+    ACT_LINKS,
+    ACT_SEARCH,
+    ACT_BACK,
+    ACT_RECENT,
+    ACT_RANDOM,
+    ACT_HOME,
   };
-  std::vector<HistoryEntry> history_;
-  void loadArticle(const std::string& title, uint64_t offset);
-  std::string title_;
-  uint64_t articleOffset_;
-  uint32_t rootSector_;
-  uint32_t chunksSector_;
-  SdRawReader reader_;
-  WikiSearchEngine searchEngine_;
-  std::vector<std::string> currentLines_;
-  std::vector<uint8_t> currentLineFlags_;
-  std::vector<uint32_t> pageStartOffsets_;
-  struct PageLink {
-      uint32_t hrefOffset;
-      uint16_t hrefLen;
-      uint16_t rectStartIdx;
-      uint16_t rectCount;
-  };
-  std::string hrefPool_;
-  std::vector<PageLink> pageLinks_;
-  struct PageImage { int x; int y; int width; int height; uint32_t sector; uint16_t offsetInSector; };
-  bool needsFullRefresh_ = false;
-  bool needsWakeRefresh_ = false;
-  bool allowFastInitialRefresh_ = false;
-  bool pageRedrawNeeded_ = true;
-  bool popupWasActive_ = false;
-  bool pendingImageRender_ = false;
-  bool imageStage2Triggered_ = false;
-  bool imagesDecodedOnPage_ = false;
-  uint32_t imageDecodeReadyAtMs_ = 0;
-  std::vector<freeink::ui::Rect> prevPageImageRects_;
-  int renderedLinkIndex_ = -1;
-  bool closedByUser_ = false;
-  int pendingRestoreLinkIndex_ = -1;
-  void syncResumeStateToConfig();
-  std::vector<PageImage> pageImages_;
-  std::vector<freeink::ui::Rect> linkRects_;
-  int currentPage_ = 0;
-  int linesPerPage_ = 1;
-  int viewportWidth_ = 0;
-  bool loaded_ = false;
-  bool isEof_ = false;
-  bool hasInfobox_ = false;
-  void showTableViewer(const std::string& payload);
-  void showInfobox();
-  int selectedLinkIndex_ = -1;
-  std::vector<TOCEntry> currentToc_;
-  void loadTOC();
-  void jumpTo(uint32_t charIdx);
-  void releasePageMemory();
-  void formatCurrentPage();
-  void onNextPage();
-  void onPrevPage();
-  void onBack();
-  // Left/Right keys and the matching hint buttons: step the link selection, crossing pages.
-  void moveLinkSelection(int dir);
-  // Back long-press and the matching hint-bar hold: leave the reader for the search screen.
-  void closeToSearch();
-  void followLink(const std::string& href);
+
+  bool open(const Target& target);
+  void showPage(int index);
+  bool turn(int delta);
+  bool paginateOne();
+  WikiPlace here() const;
+  void follow(uint32_t article, uint32_t place, bool anchored);
+  void goBack();
+  void remember();
+  void computeViewport();
+
+  void openMenu();
+  void openContents();
+  void openLinks();
+  void openSearch();
+  void openRecent();
+  void openTable(uint32_t index);
+  void openPicture(uint32_t image);
+
+  void preparePixmaps();
+  void drawPage() const;
+  void drawStatusBar() const;
+  bool handleTap(int x, int y);
+
+  std::shared_ptr<WikiSession> session_;
+  Target start_;
+  std::vector<WikiPlace> trail_;
+
+  uint32_t article_ = xwa::NO_ARTICLE;
+  xwa::ArticleHeader header_;
+  std::unique_ptr<wiki::Layout> layout_;
+  wiki::TextStyle style_;
+  std::vector<wiki::Cursor> pages_;  // where each page laid out so far starts
+  bool counted_ = false;             // every page is in pages_
+  int pageIndex_ = 0;
+  wiki::Page page_;
+  std::vector<wiki::Pixmap> pixmaps_;  // per page item; only pictures and formulas get one
+  bool pixmapsReady_ = false;
+  bool failed_ = false;
+
+  int marginTop_ = 0;
+  int marginLeft_ = 0;
+  int viewW_ = 0;
+  int viewH_ = 0;
+  int pagesUntilFullRefresh_ = 0;
+  bool forceFullRefresh_ = false;
+
+  std::unique_ptr<WikiSearch> search_;
+  std::vector<xwa::Hit> listHits_;
 };

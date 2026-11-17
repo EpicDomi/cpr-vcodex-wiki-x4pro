@@ -29,7 +29,7 @@
 #include "activities/settings/ClockSyncActivity.h"
 #include "activities/settings/OpdsServerListActivity.h"
 #include "activities/settings/SettingsActivity.h"
-#include "activities/wiki/WikiSearchActivity.h"
+#include "activities/wiki/WikiActivity.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 #include "util/HeaderDateUtils.h"
@@ -228,7 +228,7 @@ void AppsActivity::openApp(const int index) {
       activity = std::make_unique<PluginCatalogActivity>(renderer, mappedInput, OPDS_STORE.hasServers());
       break;
     case ShortcutId::Wiki:
-      activity = std::make_unique<WikiSearchActivity>(renderer, mappedInput);
+      activity = std::make_unique<WikiActivity>(renderer, mappedInput);
       break;
   }
 

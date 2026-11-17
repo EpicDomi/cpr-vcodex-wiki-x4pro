@@ -12,6 +12,20 @@
 
 enum class InputType { Text, Password, Url };
 
+// Rows shown live between the text field and the keys while typing (the
+// wiki's search results). Choosing one finishes the keyboard with its index
+// in KeyboardResult::suggestion.
+class KeyboardSuggestions {
+ public:
+  virtual ~KeyboardSuggestions() = default;
+  // The text changed: refresh the rows. Runs on the render task.
+  virtual void update(const std::string& text) = 0;
+  virtual int count() const = 0;
+  virtual const char* label(int index) const = 0;
+  // Optional second text, drawn small at the right.
+  virtual const char* detail(int index) const { return nullptr; }
+};
+
 // Text entry on the FreeInkUI keyboard component: the SDK layout tables and
 // keyboard() do the key rendering and hit-rect registration, InteractionBuffer
 // routes taps/long-presses, and this activity owns the text field, cursor
@@ -39,8 +53,21 @@ class KeyboardEntryActivity : public Activity {
   void render(RenderLock&&) override;
   uint8_t getUiTransitionRefreshWeight() const override { return UI_TRANSITION_REFRESH_WEIGHT_DENSE; }
   bool preventAutoSleep() override { return true; }
+  // Live suggestions (owned by the caller, which outlives this screen).
+  void setSuggestions(KeyboardSuggestions* provider) { suggestions = provider; }
 
  private:
+  KeyboardSuggestions* suggestions = nullptr;
+  std::string suggestedText;
+  bool suggestionsFresh = false;
+  int suggestionSel = -1;  // button focus on a suggestion row, -1 on the keys
+  // Where render() drew the rows, for loop() on the other task.
+  std::atomic<int16_t> suggestTop{0};
+  std::atomic<int16_t> suggestRowH{0};
+  std::atomic<int16_t> suggestShown{0};
+  bool handleSuggestionInput();
+  void drawSuggestions(int top, int bottom, int left, int width);
+
   std::string title;
   std::string text;
   size_t maxLength;

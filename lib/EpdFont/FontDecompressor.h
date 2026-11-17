@@ -43,11 +43,7 @@ class FontDecompressor {
   void resetStats();
   const Stats& getStats() const { return stats; }
 
-  using ScratchProviderFn = uint8_t* (*)(uint32_t neededBytes, uint32_t* outGeneration);
-  static void setScratchProvider(ScratchProviderFn provider) { scratchProvider_ = provider; }
-
  private:
-  static ScratchProviderFn scratchProvider_;
   Stats stats;
   InflateReader inflateReader;
 
@@ -77,11 +73,6 @@ class FontDecompressor {
   uint16_t hotGroupIndex = UINT16_MAX;
   uint8_t* hotGroup = nullptr;  // owned; freed in freeHotGroup()/dtor
   uint32_t hotGroupCapacity = 0;
-
-  // Shared-scratch group identity when hotGroup allocation falls back to scratchProvider_
-  const EpdFontData* scratchGroupFont = nullptr;
-  uint16_t scratchGroupIndex = UINT16_MAX;
-  uint32_t scratchGroupGen = 0;
 
   // Scratch buffer for compacting a single glyph from the hot group.
   // Valid until the next getBitmap() call. Same ownership/OOM contract as hotGroup.

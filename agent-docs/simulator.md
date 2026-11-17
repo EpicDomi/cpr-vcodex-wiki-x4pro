@@ -311,10 +311,13 @@ Notes:
   around simulator gaps in firmware sources (the imported wiki snapshot did;
   that was reverted). Regenerate the patch with `git diff <official commit>`
   when either side moves.
-- Wiki images are skipped in the simulator: its JPEGDEC stand-in has no
-  streaming `open()`. Text, links, menus, and touch routing still run.
-- The wiki reads its archive from `WIKI_RAW_DRIVE=/path/to/file.img` (or the
-  path saved in `fs_/.crosspoint/wiki.cfg`); see `SdRawReader.cpp`.
+- The wiki reads `fs_/wiki/*.xwa` like the device, through the file (the
+  sector map is device-only). Make archives with xwa-tool
+  (`xwa-tool convert some.zim --device x4-pro -o fs_/wiki/some.xwa`, or
+  `--device x4` for the compact profile), or copy `test/xwa/data/rich-*.xwa`,
+  which hold every block and inline kind. Opening an `.xwa` from Browse Files
+  goes straight to it. Pictures decode in the simulator (its JPEGDEC stand-in
+  uses stb_image). By default pages turn by swipe, not tap.
 - The Wikipedia shortcut defaults to the Home screen (second shortcut page),
   not the Apps list.
 - The simulator checks screens and input routing only. It says nothing about
