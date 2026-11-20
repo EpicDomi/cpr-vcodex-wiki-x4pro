@@ -23,6 +23,7 @@ namespace {
 // setting (Settings > Apps > Time zone), so clockUtcOffsetQ is migration-only.
 enum MenuItem {
   ITEM_CHAPTER_PAGE_COUNT = 0,
+  ITEM_STABLE_PAGE_NUMBERS,
   ITEM_BOOK_PROGRESS_PERCENTAGE,
   ITEM_PROGRESS_BAR,
   ITEM_PROGRESS_BAR_THICKNESS,
@@ -42,6 +43,7 @@ static_assert(FULL_MENU_ITEMS == StatusBarSettingsActivity::MAX_STATUS_BAR_ITEMS
 
 const StrId menuNames[FULL_MENU_ITEMS] = {
     StrId::STR_CHAPTER_PAGE_COUNT,
+    StrId::STR_STABLE_PAGE_NUMBERS,
     StrId::STR_BOOK_PROGRESS_PERCENTAGE,
     StrId::STR_PROGRESS_BAR,
     StrId::STR_PROGRESS_BAR_THICKNESS,
@@ -160,6 +162,9 @@ void StatusBarSettingsActivity::handleSelection() {
     case ITEM_CHAPTER_PAGE_COUNT:
       SETTINGS.statusBarChapterPageCount = (SETTINGS.statusBarChapterPageCount + 1) % 2;
       break;
+    case ITEM_STABLE_PAGE_NUMBERS:
+      SETTINGS.stablePageNumbers = !SETTINGS.stablePageNumbers;
+      break;
     case ITEM_BOOK_PROGRESS_PERCENTAGE:
       SETTINGS.statusBarBookProgressPercentage = (SETTINGS.statusBarBookProgressPercentage + 1) % 2;
       break;
@@ -215,18 +220,12 @@ void StatusBarSettingsActivity::handleSelection() {
 
 std::string StatusBarSettingsActivity::rowValueText(const int index) {
   switch (index) {
-    case ITEM_CHAPTER_PAGE_COUNT:
-      return SETTINGS.statusBarChapterPageCount ? tr(STR_SHOW) : tr(STR_HIDE);
-    case ITEM_BOOK_PROGRESS_PERCENTAGE:
-      return SETTINGS.statusBarBookProgressPercentage ? tr(STR_SHOW) : tr(STR_HIDE);
     case ITEM_PROGRESS_BAR:
       return I18N.get(progressBarNames[SETTINGS.statusBarProgressBar]);
     case ITEM_PROGRESS_BAR_THICKNESS:
       return I18N.get(progressBarThicknessNames[SETTINGS.statusBarProgressBarThickness]);
     case ITEM_TITLE:
       return I18N.get(titleNames[SETTINGS.statusBarTitle]);
-    case ITEM_BATTERY:
-      return SETTINGS.statusBarBattery ? tr(STR_SHOW) : tr(STR_HIDE);
     case ITEM_XTC_STATUS_BAR:
       return I18N.get(xtcStatusBarNames[SETTINGS.xtcStatusBarMode]);
     case ITEM_CLOCK:
@@ -238,7 +237,7 @@ std::string StatusBarSettingsActivity::rowValueText(const int index) {
     case ITEM_CLOCK_SYNC:
       return SETTINGS.clockHasBeenSynced ? tr(STR_CLOCK_SYNCED) : tr(STR_NOT_SET);
     default:
-      return tr(STR_HIDE);
+      return "";
   }
 }
 
@@ -263,6 +262,10 @@ void StatusBarSettingsActivity::buildScreen(UiScreen& screen) {
     rowValues_[i] = rowValueText(i);
     rowItems_[i].value = rowValues_[i].empty() ? nullptr : rowValues_[i].c_str();
   }
+  GUI.setCheckboxRow(rowItems_[ITEM_STABLE_PAGE_NUMBERS], SETTINGS.stablePageNumbers);
+  GUI.setCheckboxRow(rowItems_[ITEM_CHAPTER_PAGE_COUNT], SETTINGS.statusBarChapterPageCount);
+  GUI.setCheckboxRow(rowItems_[ITEM_BOOK_PROGRESS_PERCENTAGE], SETTINGS.statusBarBookProgressPercentage);
+  GUI.setCheckboxRow(rowItems_[ITEM_BATTERY], SETTINGS.statusBarBattery);
 
   fui::ListProps props;
   props.items = rowItems_;

@@ -1100,6 +1100,18 @@ bool ReadingStatsStore::persistToFile(const char* path) const {
     return true;
   }
 
+  // Fork: the in-memory stats were emptied for a Wi-Fi session and have not
+  // been loaded back. Saving now would overwrite the real file with them.
+  if (releasedForNetwork && path != nullptr && std::strcmp(path, READING_STATS_FILE_JSON) == 0) {
+    if (!releasedSaveLogged) {
+      LOG_ERR("RST", "Skipping reading stats save while released for network");
+      CPR_VCODEX_LOG_EVENT("RST", "Skipped reading stats save while released for network");
+      releasedSaveLogged = true;
+    }
+    lastSaveMs = millis();
+    return true;
+  }
+
   Storage.mkdir("/.crosspoint");
   if (path != nullptr && std::strcmp(path, READING_STATS_FILE_JSON) == 0) {
     prepareInternalBackup();
@@ -1191,6 +1203,10 @@ void ReadingStatsStore::beginSession(const std::string& path, const std::string&
   if (path.empty()) {
     return;
   }
+  // Fork: never start a session on stats that were emptied for the network.
+  if (releasedForNetwork) {
+    reloadAfterNetwork();
+  }
 
   if (activeSession.active) {
     endSession();
@@ -1227,7 +1243,7 @@ void ReadingStatsStore::beginSession(const std::string& path, const std::string&
 }
 
 void ReadingStatsStore::noteActivity() {
-  if (!activeSession.active || activeSession.bookIndex >= books.size()) {
+  if (!activeSession.active || activeSession.paused || activeSession.bookIndex >= books.size()) {
     return;
   }
 
@@ -1264,10 +1280,17 @@ void ReadingStatsStore::tickActiveSession() {
   noteActivity();
 }
 
+void ReadingStatsStore::pauseSession() {
+  if (!activeSession.active) return;
+  noteActivity();
+  activeSession.paused = true;
+}
+
 void ReadingStatsStore::resumeSession() {
   if (!activeSession.active) {
     return;
   }
+  activeSession.paused = false;
   activeSession.lastInteractionMs = millis();
 }
 
@@ -1637,6 +1660,7 @@ uint32_t ReadingStatsStore::getDisplayTimestamp(bool* usedFallback) const {
 }
 
 void ReadingStatsStore::reset() {
+  releasedForNetwork = false;
   persistenceSuspended = false;
   skippedSaveLogged = false;
   internalBackupPrepared = true;
@@ -1674,6 +1698,9 @@ bool ReadingStatsStore::importFromFile(const std::string& path) {
     return false;
   }
 
+  if (releasedForNetwork) {
+    reloadAfterNetwork();
+  }
   if (!refreshInternalBackupFromMain()) {
     LOG_ERR("RST", "Could not prepare rollback backup before stats import");
     CPR_VCODEX_LOG_EVENT("RST", "Reading stats import aborted because rollback backup failed");
@@ -1755,6 +1782,9 @@ bool ReadingStatsStore::saveToFile() const {
 }
 
 bool ReadingStatsStore::loadFromFile() {
+  // Fork: any load attempt ends the released state; a failed load is covered
+  // by persistenceSuspended below.
+  releasedForNetwork = false;
   const std::string tempPath = std::string(READING_STATS_FILE_JSON) + ".tmp";
   if (!Storage.exists(READING_STATS_FILE_JSON) && Storage.exists(tempPath.c_str())) {
     if (Storage.rename(tempPath.c_str(), READING_STATS_FILE_JSON)) {
@@ -1860,6 +1890,8 @@ bool ReadingStatsStore::releaseMemoryForNetwork() {
   invalidateSummaryCache();
   dirty = false;
   lastSaveMs = millis();
+  releasedForNetwork = true;
+  releasedSaveLogged = false;
 
   LOG_DBG("RST", "After network release: free=%u largest=%u", ESP.getFreeHeap(),
           heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_DEFAULT));
@@ -1868,6 +1900,7 @@ bool ReadingStatsStore::releaseMemoryForNetwork() {
 
 bool ReadingStatsStore::reloadAfterNetwork() {
   if (!Storage.exists(READING_STATS_FILE_JSON)) {
+    releasedForNetwork = false;  // nothing on disk to protect or reload
     return true;
   }
 

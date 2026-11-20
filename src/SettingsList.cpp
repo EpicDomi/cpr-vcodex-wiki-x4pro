@@ -13,6 +13,7 @@
 #include "CrossPointSettings.h"
 #include "KOReaderCredentialStore.h"
 #include "ReaderFontSizes.h"
+#include "fork/ReaderSideButtons.h"
 #include "util/ShortcutRegistry.h"
 
 SettingInfo buildFontFamilySetting(const SdCardFontRegistry* registry) {
@@ -155,6 +156,7 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
     uiThemeValues[CrossPointSettings::CLASSIC] = StrId::STR_THEME_CLASSIC;
     uiThemeValues[CrossPointSettings::ROUNDEDRAFF] = StrId::STR_THEME_ROUNDEDRAFF;
     uiThemeValues[CrossPointSettings::LYRA_3_COVERS] = StrId::STR_THEME_LYRA_EXTENDED;
+    uiThemeValues[CrossPointSettings::COVER_GRID] = StrId::STR_THEME_COVER_GRID;
 
     std::vector<StrId> shortPwrBtnValues(CrossPointSettings::SHORT_PWRBTN_COUNT);
     shortPwrBtnValues[CrossPointSettings::IGNORE] = StrId::STR_IGNORE;
@@ -229,6 +231,19 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
                             CrossPointSettings::SCREEN_MARGIN_STEP},
                            "screenMargin", StrId::STR_CAT_READER)
             .withTextSettings(),
+        SettingInfo::Value(StrId::STR_WORD_SPACING, &CrossPointSettings::wordSpacing,
+                           {CrossPointSettings::WORD_SPACING_MIN, CrossPointSettings::WORD_SPACING_MAX,
+                            CrossPointSettings::WORD_SPACING_STEP},
+                           "wordSpacing", StrId::STR_CAT_READER)
+            .withTextSettings(),
+        SettingInfo::Enum(StrId::STR_CHARACTER_SPACING, &CrossPointSettings::characterSpacing,
+                          {StrId::STR_SPACING_MINUS_2, StrId::STR_SPACING_MINUS_1, StrId::STR_SPACING_ZERO,
+                           StrId::STR_SPACING_PLUS_1, StrId::STR_SPACING_PLUS_2},
+                          "characterSpacing", StrId::STR_CAT_READER)
+            .withTextSettings(),
+        SettingInfo::Value(StrId::STR_PARAGRAPH_INDENTATION, &CrossPointSettings::paragraphIndentSpaces, {0, 5, 1},
+                           "paragraphIndentSpaces", StrId::STR_CAT_READER)
+            .withTextSettings(),
         SettingInfo::Enum(StrId::STR_PARA_ALIGNMENT, &CrossPointSettings::paragraphAlignment,
                           {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
                            StrId::STR_BOOK_S_STYLE},
@@ -274,12 +289,19 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
 
         // --- Controls ---
         SettingInfo::Enum(StrId::STR_SIDE_BTN_LAYOUT, &CrossPointSettings::sideButtonLayout,
-                          {StrId::STR_PREV_NEXT, StrId::STR_NEXT_PREV, StrId::STR_DISABLED}, "sideButtonLayout",
-                          StrId::STR_CAT_CONTROLS),
-        SettingInfo::Enum(
-            StrId::STR_TOUCH_READER_CONTROLS, &CrossPointSettings::touchReaderControls,
-            {StrId::STR_STATE_OFF, StrId::STR_STATE_TAP, StrId::STR_STATE_SWIPE, StrId::STR_STATE_INVERTED_TAP},
-            "touchReaderControls", StrId::STR_CAT_CONTROLS),
+                          {StrId::STR_PREV_NEXT, StrId::STR_NEXT_PREV, StrId::STR_DISABLED, StrId::STR_NEXT_NEXT,
+                           StrId::STR_PREV_PREV},
+                          "sideButtonLayout", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Toggle(StrId::STR_TOUCH_READER_CONTROLS, &CrossPointSettings::touchReaderControls,
+                            "touchReaderControls", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Enum(StrId::STR_NEXT_PAGE_GESTURE, &CrossPointSettings::pageTurnGesture,
+                          {StrId::STR_TAP_AND_SWIPE, StrId::STR_TAP_ONLY, StrId::STR_SWIPE_ONLY,
+                           StrId::STR_INVERTED_TAP, StrId::STR_DISABLED},
+                          "pageTurnGesture", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Enum(StrId::STR_PREV_PAGE_GESTURE, &CrossPointSettings::previousPageGesture,
+                          {StrId::STR_TAP_AND_SWIPE, StrId::STR_TAP_ONLY, StrId::STR_SWIPE_ONLY,
+                           StrId::STR_INVERTED_TAP, StrId::STR_DISABLED},
+                          "previousPageGesture", StrId::STR_CAT_CONTROLS),
         // Persisted under the legacy "tapForReaderMenu" key: old saves map
         // 0 = Off, 1 = Tap.
         SettingInfo::Enum(StrId::STR_SHOW_READER_MENU, &CrossPointSettings::showReaderMenu,
@@ -295,6 +317,8 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
                           buildLongPressMenuValues(), "longPressMenuFunction", StrId::STR_CAT_CONTROLS),
         SettingInfo::Enum(StrId::STR_SHORT_PWR_BTN, &CrossPointSettings::shortPwrBtn, std::move(shortPwrBtnValues),
                           "shortPwrBtn", StrId::STR_CAT_CONTROLS),
+        SettingInfo::Enum(StrId::STR_LONG_PWR_BTN, &CrossPointSettings::longPwrBtn,
+                          {StrId::STR_SLEEP, StrId::STR_READING_STATS}, "longPwrBtn", StrId::STR_CAT_CONTROLS),
         SettingInfo::Toggle(StrId::STR_PWR_BTN_FOOTNOTE_BACK, &CrossPointSettings::pwrBtnFootnoteBack,
                             "pwrBtnFootnoteBack", StrId::STR_CAT_CONTROLS),
         SettingInfo::Toggle(StrId::STR_BACK_SHORT_TO_FILE_BROWSER, &CrossPointSettings::backShortToFileBrowser,
@@ -304,6 +328,8 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
                           StrId::STR_CAT_CONTROLS),
 
         // --- System ---
+        SettingInfo::Toggle(StrId::STR_LIBRARY_USE_METADATA, &CrossPointSettings::libraryUseMetadata,
+                            "libraryUseMetadata", StrId::STR_CAT_SYSTEM),
         SettingInfo::Value(
             StrId::STR_TIME_TO_SLEEP, &CrossPointSettings::sleepTimeoutMinutes,
             {CrossPointSettings::MIN_SLEEP_TIMEOUT_MINUTES, CrossPointSettings::MAX_SLEEP_TIMEOUT_MINUTES, 1},
@@ -466,6 +492,8 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
                           StrId::STR_KOREADER_SYNC),
 
         // --- Status Bar Settings (web-only, uses StatusBarSettingsActivity) ---
+        SettingInfo::Toggle(StrId::STR_STABLE_PAGE_NUMBERS, &CrossPointSettings::stablePageNumbers, "stablePageNumbers",
+                            StrId::STR_CUSTOMISE_STATUS_BAR),
         SettingInfo::Toggle(StrId::STR_CHAPTER_PAGE_COUNT, &CrossPointSettings::statusBarChapterPageCount,
                             "statusBarChapterPageCount", StrId::STR_CUSTOMISE_STATUS_BAR),
         SettingInfo::Toggle(StrId::STR_BOOK_PROGRESS_PERCENTAGE, &CrossPointSettings::statusBarBookProgressPercentage,
@@ -519,7 +547,8 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
     v.erase(std::remove_if(v.begin(), v.end(),
                            [](const SettingInfo& s) {
                              return s.nameId == StrId::STR_TOUCH_READER_CONTROLS ||
-                                    s.nameId == StrId::STR_READER_MENU_STYLE;
+                                    s.nameId == StrId::STR_NEXT_PAGE_GESTURE ||
+                                    s.nameId == StrId::STR_PREV_PAGE_GESTURE;
                            }),
             v.end());
   }
@@ -540,6 +569,27 @@ std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* registry) {
                            }),
             v.end());
   }
+  if (BoardConfig::hasHomeKey()) {
+    for (unsigned i = 0; i < 3; ++i) {
+      v.push_back(SettingInfo::StaticEnum(home_button::GESTURE_LABELS[i], home_button::FIELDS[i],
+                                          home_button::ACTION_LABELS, home_button::KEYS[i], StrId::STR_CAT_CONTROLS));
+    }
+  }
+  if (BoardConfig::isX4Pro()) {
+    v.push_back(SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight,
+                                    "doubleClickPwrLight", StrId::STR_CAT_CONTROLS));
+    // Fork: reader light controls (src/fork/ReaderLightControls).
+    v.push_back(SettingInfo::Toggle(StrId::STR_EDGE_SLIDE_LIGHT, &CrossPointSettings::readerEdgeLightSlide,
+                                    "readerEdgeLightSlide", StrId::STR_CAT_CONTROLS));
+    for (int i = 0; i < readersidebuttons::ROW_COUNT; ++i) {
+      v.push_back(SettingInfo::StaticEnum(readersidebuttons::ROW_LABELS[i], readersidebuttons::FIELDS[i],
+                                          readersidebuttons::ACTION_LABELS, readersidebuttons::KEYS[i],
+                                          StrId::STR_CAT_CONTROLS));
+    }
+  }
+  // Fork diagnostic (src/fork/PerfLogWriter).
+  v.push_back(
+      SettingInfo::Toggle(StrId::STR_TIMING_LOG, &CrossPointSettings::timingLog, "timingLog", StrId::STR_CAT_SYSTEM));
   if (registry && registry->getFamilyCount() > 0) {
     auto it = std::find_if(v.begin(), v.end(), [](const SettingInfo& s) { return s.nameId == StrId::STR_FONT_FAMILY; });
     if (it != v.end()) {

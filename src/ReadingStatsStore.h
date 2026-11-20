@@ -74,6 +74,7 @@ class ReadingStatsStore {
 
   struct SessionState {
     bool active = false;
+    bool paused = false;
     size_t bookIndex = 0;
     unsigned long lastInteractionMs = 0;
     uint64_t accumulatedMs = 0;
@@ -93,6 +94,11 @@ class ReadingStatsStore {
   mutable unsigned long lastSaveMs = 0;
   mutable bool persistenceSuspended = false;
   mutable bool skippedSaveLogged = false;
+  // Fork: true while releaseMemoryForNetwork() has emptied the in-memory stats.
+  // Until they are loaded again nothing may be written to the main file, or the
+  // emptied copy would replace the real one.
+  bool releasedForNetwork = false;
+  mutable bool releasedSaveLogged = false;
   mutable bool internalBackupPrepared = false;
 
   friend bool JsonSettingsIO::saveReadingStats(const ReadingStatsStore&, const char*);
@@ -146,6 +152,7 @@ class ReadingStatsStore {
   void noteActivity();
   void tickActiveSession();
   void resumeSession();
+  void pauseSession();
   void updateProgress(uint8_t progressPercent, bool completed = false, const std::string& chapterTitle = "",
                       uint8_t chapterProgressPercent = 0);
   void endSession();
@@ -190,6 +197,8 @@ class ReadingStatsStore {
   void markLoadSkippedForRecovery();
   bool releaseMemoryForNetwork();
   bool reloadAfterNetwork();
+  // Fork: see releasedForNetwork.
+  bool isReleasedForNetwork() const { return releasedForNetwork; }
 };
 
 #define READING_STATS ReadingStatsStore::getInstance()

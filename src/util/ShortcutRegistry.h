@@ -27,6 +27,8 @@ enum class ShortcutId {
   ScreenClean,
   Sleep,
   OpdsBrowser,
+  Library,
+  Plugins,
   Wiki,
 };
 
@@ -40,8 +42,8 @@ struct ShortcutDefinition {
   uint8_t CrossPointSettings::* visiblePtr;
 };
 
-inline const std::array<ShortcutDefinition, 18>& getShortcutDefinitions() {
-  static const std::array<ShortcutDefinition, 18> definitions = {
+inline const std::array<ShortcutDefinition, 20>& getShortcutDefinitions() {
+  static const std::array<ShortcutDefinition, 20> definitions = {
       ShortcutDefinition{ShortcutId::BrowseFiles, StrId::STR_BROWSE_FILES, StrId::STR_NONE_OPT, UIIcon::Folder,
                          &CrossPointSettings::browseFilesShortcut, &CrossPointSettings::browseFilesShortcutOrder,
                          &CrossPointSettings::browseFilesShortcutVisible},
@@ -53,7 +55,8 @@ inline const std::array<ShortcutDefinition, 18>& getShortcutDefinitions() {
                          &CrossPointSettings::settingsShortcutOrder, &CrossPointSettings::settingsShortcutVisible},
       ShortcutDefinition{ShortcutId::ReadingStats, StrId::STR_READING_STATS, StrId::STR_READING_STATS_DESC,
                          UIIcon::Book, &CrossPointSettings::readingStatsShortcut,
-                         &CrossPointSettings::readingStatsShortcutOrder, &CrossPointSettings::readingStatsShortcutVisible},
+                         &CrossPointSettings::readingStatsShortcutOrder,
+                         &CrossPointSettings::readingStatsShortcutVisible},
       ShortcutDefinition{ShortcutId::ReadingHeatmap, StrId::STR_READING_HEATMAP, StrId::STR_READING_HEATMAP_DESC,
                          UIIcon::Library, &CrossPointSettings::readingHeatmapShortcut,
                          &CrossPointSettings::readingHeatmapShortcutOrder,
@@ -64,13 +67,15 @@ inline const std::array<ShortcutDefinition, 18>& getShortcutDefinitions() {
                          &CrossPointSettings::readingProfileShortcutVisible},
       ShortcutDefinition{ShortcutId::Achievements, StrId::STR_ACHIEVEMENTS, StrId::STR_ACHIEVEMENTS_APP_DESC,
                          UIIcon::Trophy, &CrossPointSettings::achievementsShortcut,
-                         &CrossPointSettings::achievementsShortcutOrder, &CrossPointSettings::achievementsShortcutVisible},
+                         &CrossPointSettings::achievementsShortcutOrder,
+                         &CrossPointSettings::achievementsShortcutVisible},
       ShortcutDefinition{ShortcutId::IfFound, StrId::STR_IF_FOUND_RETURN_ME, StrId::STR_IF_FOUND_APP_DESC, UIIcon::File,
                          &CrossPointSettings::ifFoundShortcut, &CrossPointSettings::ifFoundShortcutOrder,
                          &CrossPointSettings::ifFoundShortcutVisible},
       ShortcutDefinition{ShortcutId::RecentBooks, StrId::STR_MENU_RECENT_BOOKS, StrId::STR_RECENT_BOOKS_APP_DESC,
                          UIIcon::Recent, &CrossPointSettings::recentBooksShortcut,
-                         &CrossPointSettings::recentBooksShortcutOrder, &CrossPointSettings::recentBooksShortcutVisible},
+                         &CrossPointSettings::recentBooksShortcutOrder,
+                         &CrossPointSettings::recentBooksShortcutVisible},
       ShortcutDefinition{ShortcutId::Bookmarks, StrId::STR_HIGHLIGHTS, StrId::STR_HIGHLIGHTS_APP_DESC, UIIcon::Book,
                          &CrossPointSettings::bookmarksShortcut, &CrossPointSettings::bookmarksShortcutOrder,
                          &CrossPointSettings::bookmarksShortcutVisible},
@@ -85,7 +90,8 @@ inline const std::array<ShortcutDefinition, 18>& getShortcutDefinitions() {
                          &CrossPointSettings::dictionaryShortcutVisible},
       ShortcutDefinition{ShortcutId::FileTransfer, StrId::STR_FILE_TRANSFER, StrId::STR_FILE_TRANSFER_APP_DESC,
                          UIIcon::Transfer, &CrossPointSettings::fileTransferShortcut,
-                         &CrossPointSettings::fileTransferShortcutOrder, &CrossPointSettings::fileTransferShortcutVisible},
+                         &CrossPointSettings::fileTransferShortcutOrder,
+                         &CrossPointSettings::fileTransferShortcutVisible},
       ShortcutDefinition{ShortcutId::ScreenClean, StrId::STR_SCREEN_CLEAN, StrId::STR_SCREEN_CLEAN_APP_DESC,
                          UIIcon::Image, &CrossPointSettings::screenCleanShortcut,
                          &CrossPointSettings::screenCleanShortcutOrder,
@@ -96,6 +102,12 @@ inline const std::array<ShortcutDefinition, 18>& getShortcutDefinitions() {
       ShortcutDefinition{ShortcutId::OpdsBrowser, StrId::STR_OPDS_BROWSER, StrId::STR_NONE_OPT, UIIcon::Library,
                          &CrossPointSettings::opdsBrowserShortcut, &CrossPointSettings::opdsBrowserShortcutOrder,
                          &CrossPointSettings::opdsBrowserShortcutVisible},
+      ShortcutDefinition{ShortcutId::Library, StrId::STR_LIBRARY, StrId::STR_NONE_OPT, UIIcon::Library,
+                         &CrossPointSettings::libraryShortcut, &CrossPointSettings::libraryShortcutOrder,
+                         &CrossPointSettings::libraryShortcutVisible},
+      ShortcutDefinition{ShortcutId::Plugins, StrId::STR_PLUGINS, StrId::STR_NONE_OPT, UIIcon::Plugins,
+                         &CrossPointSettings::pluginsShortcut, &CrossPointSettings::pluginsShortcutOrder,
+                         &CrossPointSettings::pluginsShortcutVisible},
       ShortcutDefinition{ShortcutId::Wiki, StrId::STR_NONE_OPT, StrId::STR_NONE_OPT, UIIcon::Wikipedia,
                          &CrossPointSettings::wikiShortcut, &CrossPointSettings::wikiShortcutOrder,
                          &CrossPointSettings::wikiShortcutVisible},
@@ -183,9 +195,10 @@ inline std::vector<const ShortcutDefinition*> getConfiguredShortcuts(
       shortcuts.push_back(&definition);
     }
   }
-  std::stable_sort(shortcuts.begin(), shortcuts.end(), [](const ShortcutDefinition* lhs, const ShortcutDefinition* rhs) {
-    return getShortcutOrder(*lhs) < getShortcutOrder(*rhs);
-  });
+  std::stable_sort(shortcuts.begin(), shortcuts.end(),
+                   [](const ShortcutDefinition* lhs, const ShortcutDefinition* rhs) {
+                     return getShortcutOrder(*lhs) < getShortcutOrder(*rhs);
+                   });
   return shortcuts;
 }
 

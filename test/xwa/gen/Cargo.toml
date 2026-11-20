@@ -1,0 +1,19 @@
+[package]
+name = "xwa-testgen"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Writes the XWA test archives and expected dumps used by test/xwa"
+
+[dependencies]
+# The converter's own format crate, pinned: the archives and the expected
+# dumps come from its writer and reader. Bump together with the firmware
+# reader when the format version changes.
+xwa-format = { git = "https://github.com/EpicDomi/xwa-tool", rev = "d9712ae9472b070a9988335f8dd57992611915d4" }
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+zstd = "0.14"
+jpeg-encoder = "0.7"
+crc32fast = "1.4"
+ttf-parser = "0.25"
+
+[workspace]
