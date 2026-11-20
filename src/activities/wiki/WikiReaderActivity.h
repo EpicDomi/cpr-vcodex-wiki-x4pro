@@ -80,7 +80,12 @@ class WikiReaderActivity final : public Activity {
   bool counted_ = false;             // every page is in pages_
   int pageIndex_ = 0;
   wiki::Page page_;
-  std::vector<wiki::Pixmap> pixmaps_;  // per page item; only pictures and formulas get one
+  std::vector<wiki::Pixmap> pixmaps_;  // per page item: pictures, formulas, fallback-font text
+#if defined(BOARD_HAS_PSRAM) || !defined(ESP_PLATFORM)
+  static constexpr size_t GLYPH_PIXMAP_BUDGET = 4u << 20;
+#else
+  static constexpr size_t GLYPH_PIXMAP_BUDGET = 24u << 10;
+#endif
   bool pixmapsReady_ = false;
   bool failed_ = false;
 

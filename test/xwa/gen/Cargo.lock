@@ -238,6 +238,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
+name = "ttf-parser"
+version = "0.25.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2df906b07856748fa3f6e0ad0cbaa047052d4a7dd609e231c4f72cee8c36f31"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -270,7 +276,7 @@ dependencies = [
 [[package]]
 name = "xwa-format"
 version = "0.1.0"
-source = "git+https://github.com/EpicDomi/xwa-tool?rev=1b2a8fb790d33d8746761f12c63b314859357b57#1b2a8fb790d33d8746761f12c63b314859357b57"
+source = "git+https://github.com/EpicDomi/xwa-tool?rev=d9712ae9472b070a9988335f8dd57992611915d4#d9712ae9472b070a9988335f8dd57992611915d4"
 dependencies = [
  "caseless",
  "crc32fast",
@@ -288,6 +294,7 @@ dependencies = [
  "crc32fast",
  "flate2",
  "jpeg-encoder",
+ "ttf-parser",
  "xwa-format",
  "zstd",
 ]

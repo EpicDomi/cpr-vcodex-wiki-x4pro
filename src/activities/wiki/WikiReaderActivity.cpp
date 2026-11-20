@@ -490,12 +490,21 @@ void WikiReaderActivity::preparePixmaps() {
   pixmapsReady_ = true;
   pixmaps_.clear();
   pixmaps_.resize(page_.items.size());
+  size_t glyphBytes = 0;
   for (size_t i = 0; i < page_.items.size(); i++) {
     const wiki::DrawItem& it = page_.items[i];
     if (it.kind == wiki::DrawItem::Image) {
       wiki::decodePicture(*session_, it.a, it.w, it.h, pixmaps_[i]);
     } else if (it.kind == wiki::DrawItem::Formula) {
       wiki::renderFormula(*session_, article_, it.a, it.b, it.w, it.h, pixmaps_[i]);
+    } else if (it.kind == wiki::DrawItem::Glyphs) {
+      // Rasterised once while memory allows; past that, drawn afresh in
+      // every pass (slower, but needs no memory).
+      const size_t bytes = wiki::glyphRunBytes(style_.em[it.font], it.w, it.h);
+      if (glyphBytes + bytes > GLYPH_PIXMAP_BUDGET) continue;
+      glyphBytes += bytes;
+      wiki::renderGlyphRun(*session_, page_.text.c_str() + it.a, it.b, style_.em[it.font], style_.ascent[it.font],
+                           it.style, style_.tracking, it.w, it.h, pixmaps_[i]);
     }
   }
 }
@@ -516,6 +525,15 @@ void WikiReaderActivity::drawPage() const {
       case wiki::DrawItem::Frame:
         renderer.drawRect(ox + it.x, oy + it.y, it.w, it.h, true);
         break;
+      case wiki::DrawItem::Glyphs:
+        if (i < pixmaps_.size() && pixmaps_[i].valid()) {
+          const int pad = wiki::glyphRunPad(style_.em[it.font]);
+          pixmaps_[i].draw(renderer, ox + it.x - pad, oy + it.y - pad);
+        } else {
+          wiki::drawGlyphRun(renderer, *session_, page_.text.c_str() + it.a, it.b, style_.em[it.font],
+                             style_.ascent[it.font], it.style, style_.tracking, ox + it.x, oy + it.y, it.w, it.h);
+        }
+        break;
       case wiki::DrawItem::Image:
       case wiki::DrawItem::Formula:
         if (i < pixmaps_.size() && pixmaps_[i].valid()) {
@@ -531,12 +549,24 @@ void WikiReaderActivity::drawPage() const {
 
 void WikiReaderActivity::drawStatusBar() const {
   int total = static_cast<int>(pages_.size());
-  if (!counted_ && page_.endPos > 0 && header_.bodySize > page_.endPos) {
+  if (!counted_ && header_.bodySize > 0) {
     // Until every page is counted: pages so far, scaled by how much of the
-    // article they hold.
-    const int64_t estimate =
-        (static_cast<int64_t>(pageIndex_ + 1) * header_.bodySize + page_.endPos - 1) / page_.endPos;
-    total = std::max<int>(total, static_cast<int>(std::min<int64_t>(estimate, 9999)));
+    // article they hold, from the furthest point known. A first page that
+    // holds only an infobox or a picture says little, so nothing is
+    // estimated from under 2% of the article.
+    int64_t pages = pageIndex_ + 1;
+    uint32_t pos = page_.endPos;
+    if (layout_ && pages_.size() > 1) {
+      const uint32_t counted = layout_->bodyPos(pages_.back());
+      if (counted > pos) {
+        pos = counted;
+        pages = static_cast<int64_t>(pages_.size()) - 1;
+      }
+    }
+    if (pos >= header_.bodySize / 50 && pos > 0 && pos < header_.bodySize) {
+      const int64_t estimate = (pages * header_.bodySize + pos - 1) / pos;
+      total = std::max<int>(total, static_cast<int>(std::min<int64_t>(estimate, 9999)));
+    }
   }
   const float progress = header_.bodySize ? 100.0f * page_.endPos / header_.bodySize : 100.0f;
   std::string title;

@@ -28,6 +28,7 @@ class WikiTableActivity final : public Activity {
   struct Cell {
     int16_t x = 0, y = 0, w = 0, h = 0;  // in table coordinates
     bool header = false;
+    bool frame = true;  // false for the caption above the table
     uint32_t firstItem = 0, items = 0;
     uint32_t firstArea = 0, areas = 0;
   };

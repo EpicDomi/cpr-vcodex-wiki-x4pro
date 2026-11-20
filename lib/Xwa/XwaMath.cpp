@@ -43,13 +43,14 @@ bool GlyphTable::glyph(uint32_t index, std::vector<uint8_t>& out) {
   return ar_->readCached(base_ + dataAt_ + a, out.data(), out.size());
 }
 
-bool outlineGlyph(const uint8_t* data, size_t len, Rasterizer& r, float ox, float oy, float sx, float sy) {
+bool outlineGlyph(const uint8_t* data, size_t len, Rasterizer& r, float ox, float oy, float sx, float sy, float shear) {
   if (len < 8) return false;
   const uint8_t* p = data + 8;  // bbox
   const uint8_t* end = data + len;
   auto pt = [&](int i, float& x, float& y) {
-    x = ox + static_cast<int16_t>(le16(p + 4 * i)) * sx;
-    y = oy - static_cast<int16_t>(le16(p + 4 * i + 2)) * sy;
+    const float gy = static_cast<int16_t>(le16(p + 4 * i + 2));
+    x = ox + (static_cast<int16_t>(le16(p + 4 * i)) + shear * gy) * sx;
+    y = oy - gy * sy;
   };
   static const uint8_t points[4] = {1, 1, 2, 3};
   while (p < end) {

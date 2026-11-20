@@ -1,6 +1,6 @@
 #pragma once
 
-// An open XWA archive (format 0.3): the superblock and section directory,
+// An open XWA archive (format 0.4): the superblock and section directory,
 // metadata, fixed-size records, titles, compressed content chunks, the FOLD
 // table and DAYS. Everything above this (search, article content, images,
 // math) reads through it.

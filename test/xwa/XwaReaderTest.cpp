@@ -20,6 +20,7 @@
 #include "XwaArchive.h"
 #include "XwaContent.h"
 #include "XwaCrc.h"
+#include "XwaFont.h"
 #include "XwaLa2.h"
 #include "XwaMath.h"
 #include "XwaSearch.h"
@@ -306,7 +307,8 @@ class Dumper {
       for (uint32_t i = 0; i < h.tables.size(); i++) {
         TableInfo t;
         EXPECT_TRUE(readTable(r, h, i, t));
-        o += fmt("TABLE %u %ux%u f=%u\n", i, t.rows, t.cols, t.flags);
+        o +=
+            fmt("TABLE %u %ux%u f=%u caption=", i, t.rows, t.cols, t.flags) + run(r, t.captionPos, t.captionLen) + "\n";
         for (const auto& c : t.cells) {
           o += fmt("  CELL h=%d %ux%u ", c.header ? 1 : 0, c.rowspan, c.colspan) + run(r, c.runPos, c.runLen) + "\n";
         }
@@ -389,6 +391,26 @@ class Dumper {
         o += fmt("GLYPH %u bbox=%d,%d,%d,%d ops=%d\n", i, static_cast<int16_t>(le16(g.data())),
                  static_cast<int16_t>(le16(g.data() + 2)), static_cast<int16_t>(le16(g.data() + 4)),
                  static_cast<int16_t>(le16(g.data() + 6)), countOps(g));
+      }
+    }
+    const uint32_t fontSections[] = {section::FONT, section::FONT_BOLD, section::FONT_ITALIC,
+                                     section::FONT_BOLD_ITALIC};
+    for (const uint32_t type : fontSections) {
+      FontSection f;
+      if (!f.open(ar_, type)) continue;
+      o += fmt("FONT %u upem=%u asc=%d desc=%d glyphs=%u\n", type, f.upem(), f.ascender(), f.descender(),
+               f.glyphCount());
+      std::vector<uint8_t> g;
+      for (uint32_t i = 0; i < f.rangeCount(); i++) {
+        uint32_t first = 0, last = 0, glyph = 0;
+        EXPECT_TRUE(f.range(i, first, last, glyph));
+        for (uint32_t cp = first; cp <= last; cp++) {
+          EXPECT_EQ(f.find(cp), static_cast<int32_t>(glyph + cp - first));
+          EXPECT_TRUE(f.glyph(glyph + cp - first, g));
+          o += fmt("FG %04X adv=%u bbox=%d,%d,%d,%d ops=%d\n", cp, f.advance(glyph + cp - first),
+                   static_cast<int16_t>(le16(g.data())), static_cast<int16_t>(le16(g.data() + 2)),
+                   static_cast<int16_t>(le16(g.data() + 4)), static_cast<int16_t>(le16(g.data() + 6)), countOps(g));
+        }
       }
     }
     const std::pair<uint32_t, const char*> places[] = {{1, "History_2"}, {1, "Career"},          {1, "Early_life"},
@@ -514,12 +536,12 @@ TEST(XwaOpen, RefusesWhatItCannotRead) {
   EXPECT_EQ(openBytes(b), Status::Damaged);
 
   b = good;
-  b[10] = 2;  // version 0.2
+  b[10] = 3;  // version 0.3
   resealSuperblock(b);
   EXPECT_EQ(openBytes(b), Status::TooOld);
 
   b = good;
-  b[10] = 4;  // version 0.4
+  b[10] = 5;  // version 0.5
   resealSuperblock(b);
   EXPECT_EQ(openBytes(b), Status::TooNew);
 
@@ -768,6 +790,24 @@ void walk(Archive& ar) {
   GlyphTable glyphs;
   const bool haveGlyphs = glyphs.open(ar);
   std::vector<uint8_t> buf;
+  FallbackFont font;
+  if (font.open(ar)) {
+    std::vector<uint8_t> g;
+    std::vector<uint8_t> bold;
+    for (uint32_t cp = 0x250; cp < 0x2200; cp++) {
+      for (int style = 0; style < 4; style++) {
+        bool upright = false;
+        StyledGlyph sg;
+        if (!font.resolve(cp, style & 1, style & 2, upright, sg) || !sg.section->glyph(sg.glyph, g)) continue;
+        if (sg.embolden && emboldenGlyph(g.data(), g.size(), 25, bold)) g.swap(bold);
+        Rasterizer ras;
+        Canvas c(32, 32);
+        ras.begin(0, 0, 32, 32);
+        outlineGlyph(g.data(), g.size(), ras, 4, 24, 0.02f, 0.02f, sg.shear ? FallbackFont::SHEAR : 0);
+        ras.fill(Canvas::put, &c);
+      }
+    }
+  }
   for (uint32_t id = 0; id < ar.articleCount() && id < 40; id++) {
     std::string t;
     ar.title(id, t);
@@ -824,6 +864,166 @@ uint32_t rng(uint32_t& s) {
   return s;
 }
 }  // namespace
+
+namespace {
+// A square glyph, 0..100 font units, clockwise as TrueType draws outlines.
+std::vector<uint8_t> squareGlyph(bool clockwise) {
+  std::vector<uint8_t> g;
+  auto put = [&](int v) {
+    g.push_back(static_cast<uint8_t>(v & 0xFF));
+    g.push_back(static_cast<uint8_t>((v >> 8) & 0xFF));
+  };
+  for (int v : {0, 0, 100, 100}) put(v);
+  const int cw[4][2] = {{0, 0}, {0, 100}, {100, 100}, {100, 0}};
+  for (int i = 0; i < 4; i++) {
+    const int k = clockwise ? i : (4 - i) % 4;
+    g.push_back(i == 0 ? 0 : 1);
+    put(cw[k][0]);
+    put(cw[k][1]);
+  }
+  g.push_back(4);
+  g.push_back(5);
+  return g;
+}
+
+double drawGlyph(const std::vector<uint8_t>& g, float shear, Canvas& c, float scale) {
+  Rasterizer r;
+  EXPECT_TRUE(r.begin(0, 0, c.w, c.h));
+  EXPECT_TRUE(outlineGlyph(g.data(), g.size(), r, c.w / 4.0f, c.h * 3 / 4.0f, scale, scale, shear));
+  r.fill(Canvas::put, &c);
+  return c.ink();
+}
+}  // namespace
+
+TEST(XwaFont, StylesFollowTheSpec) {
+  MemorySource src(loadFile(dataPath("rich-full.xwa")));
+  Archive ar;
+  ASSERT_EQ(ar.open(&src, kX4), Status::Ok);
+  FallbackFont f;
+  ASSERT_TRUE(f.open(ar));
+  EXPECT_TRUE(f.hasBold());
+  EXPECT_TRUE(f.hasItalic());
+  EXPECT_TRUE(f.hasBoldItalic());
+  EXPECT_TRUE(f.has(0x03B1));   // α
+  EXPECT_FALSE(f.has('a'));     // built in
+  EXPECT_FALSE(f.has(0x4E00));  // not in the text
+  struct Case {
+    uint32_t cp;
+    bool bold, italic;
+    uint32_t section;  // where the glyph comes from
+    bool embolden, shear;
+  };
+  const Case cases[] = {
+      {0x03B1, false, false, section::FONT, false, false},            // α
+      {0x03B1, true, false, section::FONT_BOLD, false, false},        // real bold
+      {0x0395, true, false, section::FONT, true, false},              // Ε: never bold in the text
+      {0x03B1, false, true, section::FONT_ITALIC, false, false},      // real italic
+      {0x03C6, false, true, section::FONT, false, true},              // φ: left out of FONT_ITALIC
+      {0x211D, false, true, section::FONT, false, false},             // ℝ stays upright
+      {0x0915, false, true, section::FONT, false, false},             // Devanagari stays upright
+      {0x03C8, true, true, section::FONT_BOLD_ITALIC, false, false},  // ψ: real bold italic
+      {0x0395, true, true, section::FONT, true, true},                // Ε: all synthesised
+  };
+  for (const Case& c : cases) {
+    bool upright = false;
+    StyledGlyph g;
+    ASSERT_TRUE(f.resolve(c.cp, c.bold, c.italic, upright, g)) << std::hex << c.cp;
+    FontSection s;
+    ASSERT_TRUE(s.open(ar, c.section));
+    const int32_t want = s.find(c.cp);
+    ASSERT_GE(want, 0) << std::hex << c.cp;
+    EXPECT_EQ(g.glyph, static_cast<uint32_t>(want)) << std::hex << c.cp;
+    EXPECT_EQ(g.section->glyphCount(), s.glyphCount()) << std::hex << c.cp;
+    EXPECT_EQ(g.embolden, c.embolden) << std::hex << c.cp;
+    EXPECT_EQ(g.shear, c.shear) << std::hex << c.cp;
+    const uint16_t adv = s.advance(want);
+    EXPECT_EQ(g.advance, c.embolden ? adv + 50 : adv) << std::hex << c.cp;
+  }
+  // Bold italic falls back to the bold glyph, sheared, when it has one.
+  bool upright = false;
+  StyledGlyph g;
+  FontSection bold;
+  ASSERT_TRUE(bold.open(ar, section::FONT_BOLD));
+  ASSERT_GE(bold.find(0x03B1), 0);
+  ASSERT_TRUE(f.resolve(0x03B1, true, true, upright, g));
+  if (g.section->glyphCount() == bold.glyphCount() && !g.embolden) {
+    EXPECT_TRUE(g.shear);
+  }
+}
+
+TEST(XwaFont, UprightAndCombining) {
+  EXPECT_FALSE(staysUpright('a'));
+  EXPECT_FALSE(staysUpright(0x03C6));  // φ
+  EXPECT_FALSE(staysUpright(0x0416));  // Cyrillic
+  EXPECT_TRUE(staysUpright('+'));
+  EXPECT_TRUE(staysUpright(0x00D7));   // ×
+  EXPECT_TRUE(staysUpright(0x2211));   // ∑
+  EXPECT_TRUE(staysUpright(0x05D0));   // Hebrew
+  EXPECT_TRUE(staysUpright(0x0627));   // Arabic
+  EXPECT_TRUE(staysUpright(0xFEFB));   // Lam-Alef
+  EXPECT_TRUE(staysUpright(0x4E2D));   // Han
+  EXPECT_TRUE(staysUpright(0xAC00));   // Hangul
+  EXPECT_TRUE(staysUpright(0x20000));  // CJK extension B
+  EXPECT_TRUE(isCombining(0x0301));
+  EXPECT_TRUE(isCombining(0x20D7));
+  EXPECT_FALSE(isCombining('a'));
+}
+
+TEST(XwaFont, EmboldenMovesOutlinesOutward) {
+  for (const bool clockwise : {true, false}) {
+    const auto square = squareGlyph(clockwise);
+    std::vector<uint8_t> bold;
+    ASSERT_TRUE(emboldenGlyph(square.data(), square.size(), 10, bold));
+    // bbox and every corner move out by 10 on both axes.
+    EXPECT_EQ(static_cast<int16_t>(le16(bold.data())), -10);
+    EXPECT_EQ(static_cast<int16_t>(le16(bold.data() + 6)), 110);
+    Canvas a(64, 64);
+    Canvas b(64, 64);
+    const double regular = drawGlyph(square, 0, a, 0.2f);  // 20 px square
+    const double heavy = drawGlyph(bold, 0, b, 0.2f);      // 24 px square
+    EXPECT_NEAR(regular, 400, 1) << clockwise;
+    EXPECT_NEAR(heavy, 576, 2) << clockwise;
+  }
+}
+
+TEST(XwaFont, EmboldenKeepsHoles) {
+  MemorySource src(loadFile(dataPath("rich-full.xwa")));
+  Archive ar;
+  ASSERT_EQ(ar.open(&src, kX4), Status::Ok);
+  FontSection f;
+  ASSERT_TRUE(f.open(ar, section::FONT));
+  const int32_t o = f.find(0x03BF);  // ο, a ring
+  ASSERT_GE(o, 0);
+  std::vector<uint8_t> g;
+  ASSERT_TRUE(f.glyph(o, g));
+  std::vector<uint8_t> bold;
+  ASSERT_TRUE(emboldenGlyph(g.data(), g.size(), 25, bold));
+  Canvas a(160, 160);
+  Canvas b(160, 160);
+  const double regular = drawGlyph(g, 0, a, 0.1f);
+  const double heavy = drawGlyph(bold, 0, b, 0.1f);
+  EXPECT_GT(heavy, regular * 1.15);
+  // The counter shrinks but stays open: the middle of the ring is paper.
+  const int cx = 40 + 30;   // origin 40, ring centre about 300 units right
+  const int cy = 120 - 27;  // and 270 units up
+  EXPECT_EQ(a.at(cx, cy), 0);
+  EXPECT_EQ(b.at(cx, cy), 0);
+}
+
+TEST(XwaFont, ShearSlantsRight) {
+  const auto square = squareGlyph(true);
+  Canvas a(80, 80);
+  drawGlyph(square, FallbackFont::SHEAR, a, 0.3f);  // 30 px, origin (20, 60)
+  auto firstInk = [&](int y) {
+    for (int x = 0; x < a.w; x++) {
+      if (a.at(x, y) > 128) return x;
+    }
+    return -1;
+  };
+  // The bottom row starts at the origin; the top, 30 px up, ~6 px right.
+  EXPECT_NEAR(firstInk(59), 20, 1);
+  EXPECT_NEAR(firstInk(31), 26, 1);
+}
 
 TEST(XwaDamage, RandomDamageNeverCrashes) {
   for (const char* name : {"rich-compact.xwa", "rich-full.xwa"}) {

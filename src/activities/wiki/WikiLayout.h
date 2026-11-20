@@ -39,15 +39,18 @@ struct TextStyle {
 
 // One thing to draw, in page coordinates (0,0 = top left of the text area).
 struct DrawItem {
-  enum Kind : uint8_t { Text, Fill, Frame, Image, Formula };
+  // Glyphs: text the reader's font lacks, drawn from the archive's
+  // fallback font (spec 10); positioned like Text.
+  enum Kind : uint8_t { Text, Fill, Frame, Image, Formula, Glyphs };
   Kind kind = Text;
   uint8_t font = FONT_BODY;  // Text: slot; Formula: slot it is sized for
   uint8_t style = 0;         // Text: EpdFontFamily style bits
   uint8_t flags = 0;         // Image: image kind (photo, line art, icon)
   int16_t x = 0, y = 0;      // top left (Text: top of its line box)
   int16_t w = 0, h = 0;
-  uint32_t a = 0;  // Text: offset in Page::text; Image: image id; Formula: record position
-  uint32_t b = 0;  // Text: length; Formula: record length
+  uint32_t a = 0;  // Text, Glyphs: offset in Page::text; Image: image id; Formula: record position
+  uint32_t b = 0;  // Text, Glyphs: length; Formula: record length
+  bool hasText() const { return kind == Text || kind == Glyphs; }
 };
 
 // Something on the page that responds to a tap.

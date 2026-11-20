@@ -1,14 +1,17 @@
 #include "WikiPicture.h"
 
 #include <Arduino.h>
+#include <BidiUtils.h>
 #include <GfxRenderer.h>
 #include <JPEGDEC.h>
 #include <Logging.h>
 #include <XwaContent.h>
+#include <XwaFont.h>
 #include <XwaLa2.h>
 #include <XwaMath.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <new>
 #include <vector>
@@ -469,6 +472,152 @@ bool renderFormula(WikiSession& session, uint32_t article, uint32_t pos, uint32_
     if (decodePicture(session, f.fallbackImage, w, h, pic)) out = std::move(pic);
   }
   return true;
+}
+
+// ------------------------------------------------------------------ fallback text
+
+namespace {
+
+// The code points of a run in drawing order: right-to-left text shaped
+// (presentation forms) and reversed, as drawText does for its own fonts.
+std::string visualRun(const char* text, size_t len) {
+  std::string run(text, len);
+  bool rtl = false;
+  for (const char c : run) {
+    const auto b = static_cast<unsigned char>(c);
+    if (b >= 0xD6 && b <= 0xDB) {
+      rtl = true;
+      break;
+    }
+  }
+  if (rtl) {
+    std::string visual;
+    if (BidiUtils::applyBidiVisual(run.c_str(), visual, -1)) return visual;
+  }
+  return run;
+}
+
+float runScale(const xwa::FallbackFont& f, float em, uint8_t style) {
+  const float size = (style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) ? em / 2 : em;
+  return size / std::max<uint16_t>(1, f.upem());
+}
+
+// Walks a run's glyphs: fn(glyph, pen x in pixels) for each, and returns the
+// advance in pixels.
+template <typename Fn>
+float walkRun(xwa::FallbackFont& f, const char* text, size_t len, float em, uint8_t style, int8_t tracking, Fn fn) {
+  const std::string visual = visualRun(text, len);
+  const float scale = runScale(f, em, style);
+  const bool bold = style & EpdFontFamily::BOLD;
+  const bool italic = style & EpdFontFamily::ITALIC;
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(visual.data());
+  const uint8_t* end = p + visual.size();
+  float pen = 0;
+  bool upright = false;
+  bool first = true;
+  while (p < end) {
+    const uint32_t cp = xwa::nextUtf8(p, end);
+    xwa::StyledGlyph g;
+    if (!f.resolve(cp, bold, italic, upright, g)) continue;
+    if (!first && g.advance > 0) pen += tracking;
+    if (g.advance > 0) first = false;
+    fn(g, pen, scale);
+    pen += g.advance * scale;
+  }
+  return pen;
+}
+
+// Rasterises a run with its origin at (x0, baseline), inside the box
+// [bx, bx + bw) × [by, by + bh).
+void rasterRun(WikiSession& session, const char* text, size_t len, float em, uint8_t style, int8_t tracking, float x0,
+               float baseline, int bx, int by, int bw, int bh, xwa::Rasterizer::RowFn fn, void* ctx) {
+  xwa::FallbackFont* f = session.fallback();
+  if (!f || bw <= 0 || bh <= 0) return;
+  xwa::Rasterizer r;
+  std::vector<uint8_t> glyph;
+  std::vector<uint8_t> bold;
+  const float offset = xwa::FallbackFont::BOLD_OFFSET_EM * f->upem();
+  walkRun(*f, text, len, em, style, tracking, [&](const xwa::StyledGlyph& g, float pen, float scale) {
+    if (!g.section->glyph(g.glyph, glyph)) return;
+    if (g.embolden && xwa::emboldenGlyph(glyph.data(), glyph.size(), offset, bold)) glyph.swap(bold);
+    const float xmin = static_cast<int16_t>(xwa::le16(glyph.data()));
+    const float ymin = static_cast<int16_t>(xwa::le16(glyph.data() + 2));
+    const float xmax = static_cast<int16_t>(xwa::le16(glyph.data() + 4));
+    const float ymax = static_cast<int16_t>(xwa::le16(glyph.data() + 6));
+    if (xmax <= xmin || ymax <= ymin) return;  // draws nothing
+    const float shear = g.shear ? xwa::FallbackFont::SHEAR : 0.0f;
+    const float ox = x0 + pen;
+    int gx0 = static_cast<int>(std::floor(ox + (xmin + std::min(shear * ymin, shear * ymax)) * scale)) - 1;
+    int gx1 = static_cast<int>(std::ceil(ox + (xmax + std::max(shear * ymin, shear * ymax)) * scale)) + 1;
+    int gy0 = static_cast<int>(std::floor(baseline - ymax * scale)) - 1;
+    int gy1 = static_cast<int>(std::ceil(baseline - ymin * scale)) + 1;
+    gx0 = std::max(gx0, bx);
+    gy0 = std::max(gy0, by);
+    gx1 = std::min(gx1, bx + bw);
+    gy1 = std::min(gy1, by + bh);
+    if (!r.begin(gx0, gy0, gx1 - gx0, gy1 - gy0)) return;
+    if (xwa::outlineGlyph(glyph.data(), glyph.size(), r, ox, baseline, scale, scale, shear)) r.fill(fn, ctx);
+  });
+}
+
+struct DirectSink {
+  DirectPixelWriter pw;
+  int clipX0, clipY0, clipX1, clipY1;
+};
+
+void directCoverage(void* ctx, int y, int x, const uint8_t* cov, int n) {
+  auto* d = static_cast<DirectSink*>(ctx);
+  if (y < d->clipY0 || y >= d->clipY1) return;
+  d->pw.beginRow(y);
+  for (int i = 0; i < n; i++) {
+    const int px = x + i;
+    if (px < d->clipX0 || px >= d->clipX1 || cov[i] == 0) continue;
+    const uint8_t level = static_cast<uint8_t>(3 - (cov[i] * 3 + 127) / 255);
+    if (level < 3) d->pw.writePixel(px, level);
+  }
+}
+
+}  // namespace
+
+int measureGlyphRun(WikiSession& session, const char* text, size_t len, float em, uint8_t style, int8_t tracking) {
+  xwa::FallbackFont* f = session.fallback();
+  if (!f) return 0;
+  const float w = walkRun(*f, text, len, em, style, tracking, [](const xwa::StyledGlyph&, float, float) {});
+  return static_cast<int>(std::ceil(w));
+}
+
+int glyphRunPad(float em) { return static_cast<int>(std::ceil(em * 0.3f)) + 2; }
+
+size_t glyphRunBytes(float em, int w, int h) {
+  const int pad = glyphRunPad(em);
+  return static_cast<size_t>((w + 2 * pad + 3) / 4) * static_cast<size_t>(h + 2 * pad);
+}
+
+bool renderGlyphRun(WikiSession& session, const char* text, size_t len, float em, int ascent, uint8_t style,
+                    int8_t tracking, int w, int h, Pixmap& out) {
+  const int pad = glyphRunPad(em);
+  if (!session.fallback() || !out.allocate(w + 2 * pad, h + 2 * pad)) return false;
+  rasterRun(session, text, len, em, style, tracking, static_cast<float>(pad), static_cast<float>(pad + ascent), 0, 0,
+            out.width(), out.height(), coverage, &out);
+  return true;
+}
+
+void drawGlyphRun(GfxRenderer& renderer, WikiSession& session, const char* text, size_t len, float em, int ascent,
+                  uint8_t style, int8_t tracking, int x, int y, int w, int h) {
+  const int pad = glyphRunPad(em);
+  const auto clip = renderer.getClipRect();
+  DirectSink sink;
+  sink.pw.init(renderer);
+  sink.clipX0 = std::max(0, clip[0]);
+  sink.clipY0 = std::max(0, clip[1]);
+  sink.clipX1 = std::min(renderer.getScreenWidth(), clip[0] + clip[2]);
+  sink.clipY1 = std::min(renderer.getScreenHeight(), clip[1] + clip[3]);
+  const int bx = std::max(x - pad, sink.clipX0);
+  const int by = std::max(y - pad, sink.clipY0);
+  const int bw = std::min(x + w + pad, sink.clipX1) - bx;
+  const int bh = std::min(y + h + pad, sink.clipY1) - by;
+  rasterRun(session, text, len, em, style, tracking, static_cast<float>(x), static_cast<float>(y + ascent), bx, by, bw,
+            bh, directCoverage, &sink);
 }
 
 }  // namespace wiki

@@ -73,7 +73,9 @@ class Rasterizer {
 
 // Outlines a glyph's commands (font units, y up) into the rasterizer, with
 // the glyph origin at (ox, oy) pixels and `sx`,`sy` pixels per font unit.
-bool outlineGlyph(const uint8_t* data, size_t len, Rasterizer& r, float ox, float oy, float sx, float sy);
+// `shear` slants it: x moves right by shear × y (synthesised italic).
+bool outlineGlyph(const uint8_t* data, size_t len, Rasterizer& r, float ox, float oy, float sx, float sy,
+                  float shear = 0.0f);
 
 // Draws a whole formula with its origin (left end of the baseline) at
 // (originX, baselineY) and `pxPerUnit` pixels per MATH_GLYPHS font unit.

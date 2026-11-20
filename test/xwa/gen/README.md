@@ -14,7 +14,11 @@ item kind, figures, a gallery and icons), titles in several scripts for
 search folding (Latin with accents, ß/ẞ, Devanagari, Japanese kana, Hangul,
 Arabic and Hebrew with marks), DAYS entries (including February 29), a
 disambiguation page, redirects with and without anchors, and 400 filler
-articles so the title index has several leaf and inner blocks.
+articles so the title index has several leaf and inner blocks. FONT and its
+three styled sections come from the Noto Sans files in
+`lib/EpdFont/builtinFonts/source/NotoSans`; FONT_ITALIC leaves out φ and ℝ
+so that synthesised italic (slanted, and upright) is tested beside real
+italic.
 
 Only the C++ test runs in CI; the generated files are committed. Run the
 generator again only when xwa-tool's format changes (update `rev` in

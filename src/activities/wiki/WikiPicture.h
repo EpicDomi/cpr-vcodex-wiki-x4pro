@@ -1,6 +1,6 @@
 #pragma once
 
-// Pictures and formulas, decoded once per page into small 2-bit pixmaps
+// Pictures, formulas and fallback-font text, decoded once per page into small 2-bit pixmaps
 // (four greys, as the panel shows them) and drawn from there in every
 // render pass: the black-and-white pass and the grey passes of
 // anti-aliasing, which the reader repeats strip by strip.
@@ -64,6 +64,27 @@ bool decodePictureRegion(WikiSession& session, uint32_t id, int sw, int sh, int 
 // by the zoom viewer, where the whole scaled picture would not fit in RAM.
 bool drawPictureRegion(GfxRenderer& renderer, WikiSession& session, uint32_t id, int sw, int sh, int viewX, int viewY,
                        int viewW, int viewH, int x, int y);
+
+// Text drawn from the archive's fallback font (spec 10): a run of
+// characters the reader's own font lacks, at `em` pixels per em, in the
+// EpdFontFamily style bits `style` (bold, italic, SUP/SUB halve the size).
+
+// Width of the run in pixels.
+int measureGlyphRun(WikiSession& session, const char* text, size_t len, float em, uint8_t style, int8_t tracking);
+// Margin around a run's line box that its pixmap keeps for ink outside it
+// (slanted tops, marks left of the pen, tall scripts).
+int glyphRunPad(float em);
+// The run rasterised into a (w + 2 pad) × (h + 2 pad) pixmap, to draw at
+// (x - pad, y - pad) for a run whose line box is at (x, y), w × h, with its
+// baseline `ascent` below the top.
+bool renderGlyphRun(WikiSession& session, const char* text, size_t len, float em, int ascent, uint8_t style,
+                    int8_t tracking, int w, int h, Pixmap& out);
+// The same, drawn straight into the renderer's current pass (no memory
+// kept), clipped to the renderer's clip rectangle.
+void drawGlyphRun(GfxRenderer& renderer, WikiSession& session, const char* text, size_t len, float em, int ascent,
+                  uint8_t style, int8_t tracking, int x, int y, int w, int h);
+// Bytes a run's pixmap takes, for keeping within a memory budget.
+size_t glyphRunBytes(float em, int w, int h);
 
 // Rasterises a formula record into a w × h pixmap (anti-aliased). Falls
 // back to the formula's picture when it holds items this reader does not

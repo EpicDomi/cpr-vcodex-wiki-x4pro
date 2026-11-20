@@ -385,7 +385,7 @@ bool readTable(StreamReader& r, const ArticleHeader& h, uint32_t index, TableInf
       }
     }
   }
-  return true;
+  return run(r, out.captionPos, out.captionLen);
 }
 
 bool readInfobox(StreamReader& r, const ArticleHeader& h, std::vector<InfoboxRow>& out) {

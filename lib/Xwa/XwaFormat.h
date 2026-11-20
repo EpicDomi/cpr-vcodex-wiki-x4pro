@@ -1,6 +1,6 @@
 #pragma once
 
-// XWA offline wiki archives, format version 0.3: constants and the small
+// XWA offline wiki archives, format version 0.4: constants and the small
 // byte-level helpers every part of the reader shares. The format is defined
 // by xwa-tool's docs/format-spec-v0.md; section numbers below refer to it.
 
@@ -17,7 +17,7 @@ namespace xwa {
 
 constexpr uint8_t MAGIC[8] = {'X', 'W', 'A', 0, '\r', '\n', 0x1A, '\n'};
 constexpr uint16_t VERSION_MAJOR = 0;
-constexpr uint16_t VERSION_MINOR = 3;
+constexpr uint16_t VERSION_MINOR = 4;
 constexpr uint32_t BLOCK_SIZE = 4096;
 constexpr uint32_t SUPERBLOCK_SIZE = 4096;
 // Largest chunk a reader accepts (chunk_bits 15).
@@ -43,6 +43,9 @@ constexpr uint32_t FONT = 11;
 constexpr uint32_t WORD_INDEX = 12;
 constexpr uint32_t FOLD = 13;
 constexpr uint32_t DAYS = 14;
+constexpr uint32_t FONT_BOLD = 15;
+constexpr uint32_t FONT_ITALIC = 16;
+constexpr uint32_t FONT_BOLD_ITALIC = 17;
 }  // namespace section
 
 // Required (3.3): a reader lacking one refuses the archive.

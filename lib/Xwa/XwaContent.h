@@ -136,6 +136,8 @@ struct TableInfo {
   uint32_t cols = 0;
   uint8_t flags = 0;
   std::vector<TableCell> cells;  // row and col worked out as a browser would
+  uint32_t captionPos = 0;       // the caption's inline run (empty when none)
+  uint32_t captionLen = 0;
 };
 bool readTable(StreamReader& r, const ArticleHeader& h, uint32_t index, TableInfo& out, uint32_t maxCells = 4096);
 

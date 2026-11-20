@@ -7,6 +7,7 @@
 //!
 //! Usage: cargo run --release -- <output dir>
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::Write as _;
@@ -16,6 +17,7 @@ use xwa_format::content::{
     Anchor, Article, Block, Cell, Formula, Infobox, InfoboxRow, Inline, ListKind, MathItem, PathOp,
     Place, Style, Table, anchor_hash, decode_article, decode_header,
 };
+use xwa_format::font::{Font, FontStyle, Glyph as FontGlyph, needs_fallback};
 use xwa_format::math_glyphs::{GlyphOp, GlyphTable, Outline};
 use xwa_format::reader::Archive;
 use xwa_format::records::{article_flags, image_encoding, image_kind};
@@ -27,16 +29,55 @@ struct Rng(u64);
 
 impl Rng {
     fn next(&mut self) -> u32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (self.0 >> 33) as u32
     }
 }
 
 const WORDS: &[&str] = &[
-    "the", "archive", "reader", "draws", "pages", "quickly", "while", "small", "devices", "keep",
-    "their", "memory", "for", "text", "and", "pictures", "of", "every", "article", "it", "opens",
-    "with", "links", "to", "others", "in", "a", "wiki", "written", "by", "many", "people",
-    "über", "naïve", "café", "Ελληνικά", "кириллица", "ˈaɪnʃtaɪn", "→", "≤",
+    "the",
+    "archive",
+    "reader",
+    "draws",
+    "pages",
+    "quickly",
+    "while",
+    "small",
+    "devices",
+    "keep",
+    "their",
+    "memory",
+    "for",
+    "text",
+    "and",
+    "pictures",
+    "of",
+    "every",
+    "article",
+    "it",
+    "opens",
+    "with",
+    "links",
+    "to",
+    "others",
+    "in",
+    "a",
+    "wiki",
+    "written",
+    "by",
+    "many",
+    "people",
+    "über",
+    "naïve",
+    "café",
+    "Ελληνικά",
+    "кириллица",
+    "ˈaɪnʃtaɪn",
+    "→",
+    "≤",
 ];
 
 fn sentence(rng: &mut Rng, words: usize) -> String {
@@ -289,7 +330,11 @@ fn alpha(rng: &mut Rng) -> Article {
         heading(3, "Pictures"),
         Block::Figure {
             image: 0,
-            caption: vec![t("A "), styled(Style::Italic, vec![t("photo")]), t(" caption")],
+            caption: vec![
+                t("A "),
+                styled(Style::Italic, vec![t("photo")]),
+                t(" caption"),
+            ],
         },
         Block::Figure {
             image: 1,
@@ -323,8 +368,22 @@ fn alpha(rng: &mut Rng) -> Article {
             .collect();
         body.push(para(vec![t(&text)]));
     }
+    // Characters the built-in fonts lack, in every style (FONT, 10.1).
+    body.push(heading(2, "Greek Ωμέγα"));
+    body.push(para(vec![
+        t("Regular αλφάβητο φ, "),
+        styled(Style::Bold, vec![t("bold Αλφάβητο φ")]),
+        t(", "),
+        styled(Style::Italic, vec![t("italic αλφάβητο φ ℝ")]),
+        t(", "),
+        styled(
+            Style::Bold,
+            vec![styled(Style::Italic, vec![t("bold italic ψ")])],
+        ),
+        t(" and IPA ʃəˈɹɪ."),
+    ]));
+    body.push(heading(5, "Small heading λ"));
     body.push(heading(2, "Tables"));
-    body.push(para(vec![styled(Style::Bold, vec![t("A caption")])]));
     body.push(Block::TableRef(0));
     body.push(Block::TableRef(1));
     let cell = |header: bool, rowspan: u32, colspan: u32, content: Vec<Inline>| Cell {
@@ -346,6 +405,7 @@ fn alpha(rng: &mut Rng) -> Article {
             cell(false, 1, 1, vec![link(1, 0, "b")]),
             cell(false, 1, 2, vec![t("c and d")]),
         ],
+        caption: vec![t("A "), styled(Style::Italic, vec![t("caption")])],
     };
     let mut wide = Vec::new();
     for r in 0..2 {
@@ -363,6 +423,7 @@ fn alpha(rng: &mut Rng) -> Article {
         cols: 8,
         flags: 0,
         cells: wide,
+        caption: Vec::new(),
     };
     Article {
         title: "Alpha".into(),
@@ -429,7 +490,8 @@ fn gray_jpeg(w: u16, h: u16) -> Vec<u8> {
     let mut pixels = Vec::with_capacity(w as usize * h as usize);
     for y in 0..h as u32 {
         for x in 0..w as u32 {
-            let ring = (((x as i32 - w as i32 / 2).pow(2) + (y as i32 - h as i32 / 2).pow(2)) as f32)
+            let ring = (((x as i32 - w as i32 / 2).pow(2) + (y as i32 - h as i32 / 2).pow(2))
+                as f32)
                 .sqrt() as u32;
             pixels.push(((x * 255 / w as u32) ^ (ring * 8 & 0x40)) as u8);
         }
@@ -495,7 +557,10 @@ fn write_archive(path: &Path, profile: Profile) {
     let mut w = ArchiveWriter::create(path, opts).unwrap();
     for (k, v) in [
         ("title", "Firmware test wiki"),
-        ("description", "Every block, inline and section the firmware reads"),
+        (
+            "description",
+            "Every block, inline and section the firmware reads",
+        ),
         ("language", "eng"),
         ("source.name", "xwa_testgen"),
         ("source.date", "2026-11-17"),
@@ -515,7 +580,11 @@ fn write_archive(path: &Path, profile: Profile) {
         (simple("が", "ひらがなの一文字。"), 0, 22),
         (simple("か", "もう一つの文字。"), 0, 23),
         (simple("한국", "대한민국의 이름입니다."), 0, 60),
-        (simple("كتاب", "هذا كتاب عربي، and some English في الوسط."), 0, 45),
+        (
+            simple("كتاب", "هذا كتاب عربي، and some English في الوسط."),
+            0,
+            45,
+        ),
         (simple("שלום", "שלום עולם, hello world."), 0, 44),
         (simple("January 1", "The first day of the year."), 0, 90),
         (simple("February 29", "A leap day."), 0, 70),
@@ -525,11 +594,7 @@ fn write_archive(path: &Path, profile: Profile) {
             article_flags::DISAMBIGUATION,
             100,
         ),
-        (
-            simple("List of tests", "A list."),
-            article_flags::LIST,
-            8,
-        ),
+        (simple("List of tests", "A list."), article_flags::LIST, 8),
         (simple("Einstein", "A physicist."), 0, 200),
         (simple("Eindhoven", "A city."), 0, 120),
         (simple("Eine kleine Nachtmusik", "A serenade."), 0, 50),
@@ -539,7 +604,10 @@ fn write_archive(path: &Path, profile: Profile) {
     ];
     for i in 0..FILLERS {
         articles.push((
-            simple(&format!("Filler {i:04}"), &format!("Filler {i} is number {i}.")),
+            simple(
+                &format!("Filler {i:04}"),
+                &format!("Filler {i} is number {i}."),
+            ),
             0,
             ((i * 37) % 251) as u8,
         ));
@@ -617,12 +685,138 @@ fn write_archive(path: &Path, profile: Profile) {
         w.add_image(id as u32, info, data).unwrap();
     }
     w.set_math_glyphs(xwa_format::math_glyphs::encode(&glyph_table()).unwrap());
+    set_fonts(&mut w);
     let mut days = [None; DAYS_IN_YEAR];
     days[0] = Some(11);
     days[59] = Some(12);
     days[365] = Some(13);
     w.set_days(&days);
     w.finish().unwrap();
+}
+
+// ------------------------------------------------------------------ fonts
+
+/// The Noto fonts the firmware repository carries, by style.
+fn font_files() -> [(FontStyle, &'static str); 4] {
+    [
+        (FontStyle::Regular, "NotoSans-Regular.ttf"),
+        (FontStyle::Bold, "NotoSans-Bold.ttf"),
+        (FontStyle::Italic, "NotoSans-Italic.ttf"),
+        (FontStyle::BoldItalic, "NotoSans-BoldItalic.ttf"),
+    ]
+}
+
+struct Pen {
+    scale: f32,
+    ops: Vec<GlyphOp>,
+}
+
+impl Pen {
+    fn at(&self, v: f32) -> i16 {
+        (v * self.scale).round() as i16
+    }
+}
+
+impl ttf_parser::OutlineBuilder for Pen {
+    fn move_to(&mut self, x: f32, y: f32) {
+        let op = GlyphOp::Move(self.at(x), self.at(y));
+        self.ops.push(op);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        let op = GlyphOp::Line(self.at(x), self.at(y));
+        self.ops.push(op);
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        let op = GlyphOp::Quad(self.at(x1), self.at(y1), self.at(x), self.at(y));
+        self.ops.push(op);
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        let op = GlyphOp::Cubic(
+            self.at(x1),
+            self.at(y1),
+            self.at(x2),
+            self.at(y2),
+            self.at(x),
+            self.at(y),
+        );
+        self.ops.push(op);
+    }
+    fn close(&mut self) {
+        self.ops.push(GlyphOp::Close);
+    }
+}
+
+fn font_glyph(face: &ttf_parser::Face, c: char) -> Option<FontGlyph> {
+    let id = face.glyph_index(c).filter(|g| g.0 != 0)?;
+    let scale = 1000.0 / face.units_per_em() as f32;
+    let mut pen = Pen {
+        scale,
+        ops: Vec::new(),
+    };
+    let outline = match face.outline_glyph(id, &mut pen) {
+        Some(b) => Outline {
+            bbox: [
+                pen.at(b.x_min as f32),
+                pen.at(b.y_min as f32),
+                pen.at(b.x_max as f32),
+                pen.at(b.y_max as f32),
+            ],
+            ops: pen.ops,
+        },
+        None => Outline::default(),
+    };
+    let advance = (face.glyph_hor_advance(id).unwrap_or(0) as f32 * scale).round() as u16;
+    Some(FontGlyph { advance, outline })
+}
+
+/// FONT and all three styled sections, from Noto Sans, for what the text
+/// uses that the built-in fonts lack. FONT_ITALIC leaves out φ and ℝ so
+/// that the reader's synthesised italic (slanted, and upright) is tested
+/// next to a real one.
+fn set_fonts<W: std::io::Write + std::io::Seek>(w: &mut ArchiveWriter<W>) {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../lib/EpdFont/builtinFonts/source/NotoSans");
+    let mut regular: Vec<char> = Vec::new();
+    for (style, file) in font_files() {
+        let bytes = fs::read(dir.join(file)).unwrap();
+        let face = ttf_parser::Face::parse(&bytes, 0).unwrap();
+        let wanted: Vec<char> = if style == FontStyle::Regular {
+            w.text_chars()
+                .iter()
+                .filter(|&c| needs_fallback(c) && face.glyph_index(c).is_some_and(|g| g.0 != 0))
+                .collect()
+        } else {
+            let mut chars = w.styled_chars(style);
+            // Bold italic is drawn from the bold glyph when there is no
+            // bold italic one, so FONT_BOLD holds both (10.1).
+            if style == FontStyle::Bold {
+                chars.union(&w.styled_chars(FontStyle::BoldItalic));
+            }
+            chars
+                .iter()
+                .filter(|c| regular.contains(c))
+                .filter(|&c| !(style == FontStyle::Italic && (c == 'φ' || c == 'ℝ')))
+                .collect()
+        };
+        let mut font = Font {
+            upem: 1000,
+            ascender: 1069,
+            descender: -293,
+            line_gap: 0,
+            glyphs: BTreeMap::new(),
+        };
+        for c in &wanted {
+            if let Some(g) = font_glyph(&face, *c) {
+                font.glyphs.insert(*c, g);
+            }
+        }
+        if style == FontStyle::Regular {
+            regular = font.glyphs.keys().copied().collect();
+        }
+        if !font.glyphs.is_empty() {
+            w.set_font(style, font.encode().unwrap());
+        }
+    }
 }
 
 // ------------------------------------------------------------------ dumping
@@ -819,7 +1013,9 @@ fn dump(path: &Path) -> String {
         writeln!(
             o,
             "INFOBOX {}",
-            header.infobox_pos.map_or("-".to_string(), |p| p.to_string())
+            header
+                .infobox_pos
+                .map_or("-".to_string(), |p| p.to_string())
         )
         .unwrap();
         for a in &header.anchors {
@@ -828,7 +1024,15 @@ fn dump(path: &Path) -> String {
         writeln!(o, "BODY").unwrap();
         blocks(&mut o, &article.body, 1);
         for (i, table) in article.tables.iter().enumerate() {
-            writeln!(o, "TABLE {i} {}x{} f={}", table.rows, table.cols, table.flags).unwrap();
+            writeln!(
+                o,
+                "TABLE {i} {}x{} f={} caption={}",
+                table.rows,
+                table.cols,
+                table.flags,
+                inlines(&table.caption)
+            )
+            .unwrap();
             for c in &table.cells {
                 writeln!(
                     o,
@@ -860,10 +1064,42 @@ fn dump(path: &Path) -> String {
         writeln!(o, "END").unwrap();
     }
     let queries = [
-        "", "a", "al", "alpha", "ALPHA", "Alfa", "ça", "ca", "strasse", "STRASSE", "straße",
-        "STRAẞE", "कि", "क", "が", "か", "한", "한국", "كتاب", "كِتَاب", "שָׁלוֹם", "ein", "eins",
-        "e", "f", "filler 01", "Filler_0399", "zzz", "beta h", "beta's", "januar", "mercury",
-        "  einstein  ", "ÉINSTEIN", "ﬁller", "ｆｉｌｌｅｒ",
+        "",
+        "a",
+        "al",
+        "alpha",
+        "ALPHA",
+        "Alfa",
+        "ça",
+        "ca",
+        "strasse",
+        "STRASSE",
+        "straße",
+        "STRAẞE",
+        "कि",
+        "क",
+        "が",
+        "か",
+        "한",
+        "한국",
+        "كتاب",
+        "كِتَاب",
+        "שָׁלוֹם",
+        "ein",
+        "eins",
+        "e",
+        "f",
+        "filler 01",
+        "Filler_0399",
+        "zzz",
+        "beta h",
+        "beta's",
+        "januar",
+        "mercury",
+        "  einstein  ",
+        "ÉINSTEIN",
+        "ﬁller",
+        "ｆｉｌｌｅｒ",
     ];
     for q in queries {
         let key = ar.search_key(q);
@@ -932,6 +1168,34 @@ fn dump(path: &Path) -> String {
             .unwrap();
         }
     }
+    for style in FontStyle::ALL {
+        if let Some(f) = ar.styled_font(style).unwrap() {
+            writeln!(
+                o,
+                "FONT {} upem={} asc={} desc={} glyphs={}",
+                style.section(),
+                f.upem,
+                f.ascender,
+                f.descender,
+                f.glyphs.len()
+            )
+            .unwrap();
+            for (c, g) in &f.glyphs {
+                writeln!(
+                    o,
+                    "FG {:04X} adv={} bbox={},{},{},{} ops={}",
+                    *c as u32,
+                    g.advance,
+                    g.outline.bbox[0],
+                    g.outline.bbox[1],
+                    g.outline.bbox[2],
+                    g.outline.bbox[3],
+                    g.outline.ops.len()
+                )
+                .unwrap();
+            }
+        }
+    }
     for (id, name) in [
         (1, "History_2"),
         (1, "Career"),
@@ -956,10 +1220,15 @@ fn dump(path: &Path) -> String {
 }
 
 fn main() {
-    let dir = std::env::args().nth(1).expect("usage: xwa-testgen <output dir>");
+    let dir = std::env::args()
+        .nth(1)
+        .expect("usage: xwa-testgen <output dir>");
     let dir = Path::new(&dir);
     fs::create_dir_all(dir).unwrap();
-    for (name, profile) in [("rich-full", Profile::Full), ("rich-compact", Profile::Compact)] {
+    for (name, profile) in [
+        ("rich-full", Profile::Full),
+        ("rich-compact", Profile::Compact),
+    ] {
         let path = dir.join(format!("{name}.xwa"));
         write_archive(&path, profile);
         let text = dump(&path);

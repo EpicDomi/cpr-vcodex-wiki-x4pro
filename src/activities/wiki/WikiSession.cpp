@@ -101,6 +101,14 @@ xwa::GlyphTable* WikiSession::glyphs() {
   return glyphs_.isOpen() ? &glyphs_ : nullptr;
 }
 
+xwa::FallbackFont* WikiSession::fallback() {
+  if (!fallbackTried_) {
+    fallbackTried_ = true;
+    fallback_.open(archive_);
+  }
+  return fallback_.isOpen() ? &fallback_ : nullptr;
+}
+
 std::string WikiSession::stateBase() const { return std::string(wiki::STATE_DIR) + "/" + wiki::baseName(path_); }
 
 void WikiSession::loadMemory() {

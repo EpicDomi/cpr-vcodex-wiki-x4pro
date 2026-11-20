@@ -1,6 +1,7 @@
 #pragma once
 
 #include <XwaArchive.h>
+#include <XwaFont.h>
 #include <XwaMath.h>
 #include <XwaSearch.h>
 
@@ -46,6 +47,9 @@ class WikiSession {
   xwa::TitleIndex& index() { return index_; }
   // MATH_GLYPHS, opened on first use; null when the archive has none.
   xwa::GlyphTable* glyphs();
+  // FONT and its styled sections, opened on first use; null when the
+  // archive has none.
+  xwa::FallbackFont* fallback();
   const std::string& path() const { return path_; }
   // The archive's title (META), else its file name.
   const std::string& title() const { return title_; }
@@ -68,6 +72,8 @@ class WikiSession {
   xwa::TitleIndex index_;
   xwa::GlyphTable glyphs_;
   bool glyphsTried_ = false;
+  xwa::FallbackFont fallback_;
+  bool fallbackTried_ = false;
   std::string path_;
   std::string title_;
   uint32_t stamp_ = 0;

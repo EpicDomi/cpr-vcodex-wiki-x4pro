@@ -14,6 +14,7 @@
 #include "CrossPointSettings.h"
 #include "Epub/hyphenation/Hyphenator.h"
 #include "ReaderFontSizes.h"
+#include "WikiPicture.h"
 #include "WikiSession.h"
 #include "fontIds.h"
 
@@ -165,7 +166,7 @@ void BlockLines::copyItems(const BlockLines& src, const Line& line, int16_t dx, 
     DrawItem it = src.items[line.item + i];
     it.x = static_cast<int16_t>(it.x + dx);
     it.y = static_cast<int16_t>(it.y + dy);
-    if (it.kind == DrawItem::Text) {
+    if (it.hasText()) {
       const uint32_t from = it.a;
       it.a = static_cast<uint32_t>(text.size());
       text.append(src.text.c_str() + from, it.b);
@@ -364,9 +365,10 @@ class Flow {
     Kind kind = Text;
     uint8_t font = FONT_BODY;
     uint8_t style = 0;
-    bool space = false;  // a breakable space comes before it
-    bool brk = false;    // a break may come before it, with no space (CJK)
-    bool glue = false;   // a no-break space comes before it, inside a word
+    bool space = false;     // a breakable space comes before it
+    bool brk = false;       // a break may come before it, with no space (CJK)
+    bool glue = false;      // a no-break space comes before it, inside a word
+    bool fallback = false;  // Text drawn from the archive's fallback font
     int16_t w = 0;
     int16_t up = 0;  // boxes: extent above and below the baseline
     int16_t down = 0;
@@ -384,8 +386,20 @@ class Flow {
   }
 
   int16_t measure(const Atom& a) const {
+    if (a.fallback) {
+      return static_cast<int16_t>(
+          measureGlyphRun(L_.session_, text_.c_str() + a.a, a.b, st_.em[a.font], a.style, st_.tracking));
+    }
     return static_cast<int16_t>(rend_.getTextAdvanceX(fontId(a.font), text_.c_str() + a.a,
                                                       static_cast<EpdFontFamily::Style>(a.style), st_.tracking));
+  }
+
+  // Whether a character comes from the archive's fallback font: the
+  // reader's font lacks it and FONT has it (spec 10).
+  bool fromFallback(uint32_t cp, uint8_t font, uint8_t style) const {
+    if (!fallback_ || cp < 0x80) return false;
+    return !rend_.canDrawCodepoint(fontId(font), cp, static_cast<EpdFontFamily::Style>(style & 3)) &&
+           fallback_->has(cp);
   }
 
   // `text`, for text atoms, is stored only once the word before is placed:
@@ -415,10 +429,15 @@ class Flow {
     return at;
   }
 
-  // Characters the fonts do not draw and the layout has no use for.
+  // Characters the fonts do not draw and the layout has no use for: the
+  // soft hyphen, direction marks and Unicode's other default-ignorable code
+  // points (joiners, variation selectors, tags), which FONT leaves out too.
   static bool invisible(uint32_t cp) {
-    return cp == 0x00AD || cp == 0x200E || cp == 0x200F || (cp >= 0x202A && cp <= 0x202E) ||
-           (cp >= 0x2060 && cp <= 0x2064) || (cp >= 0x2066 && cp <= 0x2069) || cp == 0xFEFF;
+    return cp == 0x00AD || cp == 0x034F || cp == 0x061C || cp == 0x115F || cp == 0x1160 || cp == 0x17B4 ||
+           cp == 0x17B5 || (cp >= 0x180B && cp <= 0x180F) || (cp >= 0x200C && cp <= 0x200F) ||
+           (cp >= 0x202A && cp <= 0x202E) || (cp >= 0x2060 && cp <= 0x206F) || cp == 0x3164 ||
+           (cp >= 0xFE00 && cp <= 0xFE0F) || cp == 0xFEFF || cp == 0xFFA0 || (cp >= 0x1BCA0 && cp <= 0x1BCA3) ||
+           (cp >= 0x1D173 && cp <= 0x1D17A) || (cp >= 0xE0000 && cp <= 0xE0FFF);
   }
 
   void addText(const char* s, size_t n, uint8_t font, uint8_t style, uint16_t link) {
@@ -431,6 +450,7 @@ class Flow {
     const uint8_t* end = p + n;
     std::string piece;
     bool brkNext = false;
+    bool pieceFallback = false;
     uint32_t lastCp = 0;
     auto flush = [&]() {
       if (!piece.empty()) {
@@ -439,6 +459,7 @@ class Flow {
         a.style = style;
         a.link = link;
         a.brk = brkNext;
+        a.fallback = pieceFallback;
         push(a, piece.data(), piece.size());
         piece.clear();
       }
@@ -474,6 +495,23 @@ class Flow {
         // punctuation that must stay with its neighbour.
         flush();
         brkNext = true;
+      }
+      if (fallback_) {
+        // A word changes font where the reader's font stops covering it.
+        // A combining mark stays with its base when that font has it.
+        bool fb = fromFallback(cp, font, style);
+        if (xwa::isCombining(cp) && !piece.empty() &&
+            (pieceFallback ? fallback_->has(cp)
+                           : rend_.canDrawCodepoint(fontId(font), cp, static_cast<EpdFontFamily::Style>(style & 3)))) {
+          fb = pieceFallback;
+        }
+        if (fb != pieceFallback) {
+          // Inside a word: no break between the pieces.
+          const bool brk = brkNext;
+          flush();
+          brkNext = brk;
+          pieceFallback = fb;
+        }
       }
       piece.append(reinterpret_cast<const char*>(at), static_cast<size_t>(p - at));
       lastCp = cp;
@@ -739,7 +777,7 @@ class Flow {
         it.x = static_cast<int16_t>(x);
         it.w = a.w;
         if (a.kind == Atom::Text) {
-          it.kind = DrawItem::Text;
+          it.kind = a.fallback ? DrawItem::Glyphs : DrawItem::Text;
           it.font = a.font;
           it.style = static_cast<uint8_t>(a.style & ~EpdFontFamily::UNDERLINE);
           it.y = static_cast<int16_t>(above - st_.ascent[a.font]);
@@ -829,6 +867,7 @@ class Flow {
   xwa::StreamReader& r_;
   GfxRenderer& rend_;
   const TextStyle& st_;
+  xwa::FallbackFont* fallback_ = L_.session_.fallback();
   BlockLines* out_ = nullptr;
   int16_t x_ = 0;
   int16_t width_ = 0;
@@ -988,6 +1027,37 @@ bool Layout::layPre(uint32_t pos, uint32_t len, int16_t x, int16_t w, BlockLines
   if (len && (!reader_.seek(pos) || !reader_.bytes(&text[0], len))) return false;
   const int font = style_.id[FONT_SMALL];
   const int16_t lh = style_.lineHeight[FONT_SMALL];
+  xwa::FallbackFont* fallback = session_.fallback();
+  // Calls fn(offset, length, fromFallback) for each run of `s` that one font
+  // draws: the reader's, or the archive's fallback font where it lacks one.
+  auto runs = [&](const std::string& s, auto fn) {
+    const uint8_t* b = reinterpret_cast<const uint8_t*>(s.data());
+    const uint8_t* p = b;
+    const uint8_t* end = b + s.size();
+    size_t from = 0;
+    bool cur = false;
+    while (p < end) {
+      const size_t at = static_cast<size_t>(p - b);
+      const uint32_t cp = xwa::nextUtf8(p, end);
+      bool fb = fallback && cp >= 0x80 && !renderer_.canDrawCodepoint(font, cp) && fallback->has(cp);
+      if (xwa::isCombining(cp) && at > from) fb = cur;
+      if (fb != cur && at > from) {
+        fn(from, at - from, cur);
+        from = at;
+      }
+      cur = fb;
+    }
+    if (s.size() > from) fn(from, s.size() - from, cur);
+  };
+  auto width = [&](const std::string& s) {
+    int total = 0;
+    runs(s, [&](size_t o, size_t n, bool fb) {
+      const std::string piece = s.substr(o, n);
+      total += fb ? measureGlyphRun(session_, piece.data(), n, style_.em[FONT_SMALL], 0, 0)
+                  : renderer_.getTextAdvanceX(font, piece.c_str(), EpdFontFamily::REGULAR);
+    });
+    return total;
+  };
   size_t start = 0;
   while (start <= text.size()) {
     size_t end = text.find('\n', start);
@@ -997,7 +1067,7 @@ bool Layout::layPre(uint32_t pos, uint32_t len, int16_t x, int16_t w, BlockLines
     // the screen: then it is cut at the last character that fits.
     do {
       size_t fit = rest.size();
-      if (renderer_.getTextAdvanceX(font, rest.c_str(), EpdFontFamily::REGULAR) > w) {
+      if (width(rest) > w) {
         // The longest prefix that fits, on a code point boundary.
         size_t lo = 0;
         size_t hi = rest.size();
@@ -1005,7 +1075,7 @@ bool Layout::layPre(uint32_t pos, uint32_t len, int16_t x, int16_t w, BlockLines
           size_t mid = (lo + hi) / 2;
           while (mid > lo && (static_cast<uint8_t>(rest[mid]) & 0xC0) == 0x80) mid--;
           if (mid == lo) break;
-          if (renderer_.getTextAdvanceX(font, rest.substr(0, mid).c_str(), EpdFontFamily::REGULAR) <= w) {
+          if (width(rest.substr(0, mid)) <= w) {
             lo = mid;
           } else {
             hi = mid;
@@ -1021,17 +1091,25 @@ bool Layout::layPre(uint32_t pos, uint32_t len, int16_t x, int16_t w, BlockLines
       Line ln;
       ln.item = static_cast<uint16_t>(out.items.size());
       if (fit > 0) {
-        DrawItem it;
-        it.kind = DrawItem::Text;
-        it.font = FONT_SMALL;
-        it.x = x;
-        it.h = lh;
-        it.a = static_cast<uint32_t>(out.text.size());
-        it.b = static_cast<uint32_t>(fit);
-        out.text.append(rest, 0, fit);
-        out.text.push_back('\0');
-        out.items.push_back(it);
-        ln.items = 1;
+        const std::string line = rest.substr(0, fit);
+        int16_t px = x;
+        runs(line, [&](size_t o, size_t n, bool fb) {
+          const std::string piece = line.substr(o, n);
+          DrawItem it;
+          it.kind = fb ? DrawItem::Glyphs : DrawItem::Text;
+          it.font = FONT_SMALL;
+          it.x = px;
+          it.h = lh;
+          it.w = static_cast<int16_t>(fb ? measureGlyphRun(session_, piece.data(), n, style_.em[FONT_SMALL], 0, 0)
+                                         : renderer_.getTextAdvanceX(font, piece.c_str(), EpdFontFamily::REGULAR));
+          it.a = static_cast<uint32_t>(out.text.size());
+          it.b = static_cast<uint32_t>(n);
+          out.text += piece;
+          out.text.push_back('\0');
+          out.items.push_back(it);
+          px = static_cast<int16_t>(px + it.w);
+        });
+        ln.items = static_cast<uint16_t>(out.items.size() - ln.item);
       }
       ln.h = lh;
       ln.base = style_.ascent[FONT_SMALL];
@@ -1066,12 +1144,18 @@ bool Layout::layTablePlaceholder(uint32_t index, int16_t x, int16_t w, BlockLine
   f.begin(0, innerW, 1, &inner);
   f.text(label, FONT_SMALL, EpdFontFamily::BOLD);
   f.finish();
+  if (t.captionLen > 0) {
+    // The caption (spec 7.4), bold as the viewer shows it.
+    f.begin(0, innerW, 1, &inner);
+    f.run(t.captionPos, t.captionLen, FONT_SMALL, EpdFontFamily::BOLD);
+    f.finish();
+  }
   if (!summary.empty()) {
     f.begin(0, innerW, 1, &inner);
     f.text(summary.c_str(), FONT_SMALL, EpdFontFamily::REGULAR);
     f.finish();
   }
-  if (inner.lines.size() > 4) inner.lines.resize(4);  // the viewer shows the rest
+  if (inner.lines.size() > 5) inner.lines.resize(5);  // the viewer shows the rest
   // One tall line: the frame, the text, and a tap area that opens the table.
   int16_t total = 2 * pad;
   for (const Line& l : inner.lines) total = static_cast<int16_t>(total + l.h);
@@ -1316,7 +1400,7 @@ void Layout::place(const BlockLines& lines, uint16_t index, int16_t y, const Cur
   for (uint16_t k = 0; k < ln.items; k++) {
     DrawItem it = lines.items[ln.item + k];
     it.y = static_cast<int16_t>(it.y + y);
-    if (it.kind == DrawItem::Text) {
+    if (it.hasText()) {
       const uint32_t from = it.a;
       it.a = static_cast<uint32_t>(out.text.size());
       out.text.append(lines.text.c_str() + from, it.b);

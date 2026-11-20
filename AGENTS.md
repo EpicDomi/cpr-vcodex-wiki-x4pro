@@ -85,8 +85,14 @@ from the upstream rules above, these notes win for this fork.
   and `WikiLinkResult` in `ActivityResult.h`. `lib/zstd` is zstd 1.5.7's
   decompressor, vendored unchanged and excluded from the format check.
 - The XWA format is defined by xwa-tool's `docs/format-spec-v0.md` (version
-  0.3). Change the reader only with the spec; regenerate `test/xwa/data` with
+  0.4). Change the reader only with the spec; regenerate `test/xwa/data` with
   `test/xwa/gen` (pinned to an xwa-tool commit) when the format moves.
+  Characters the reader's font lacks come from the archive's FONT sections
+  (`lib/Xwa/XwaFont`, drawn as `DrawItem::Glyphs`): real bold from
+  FONT_BOLD, italic and bold italic from their sections when present, and
+  otherwise synthesised (outline offset, 12° shear, upright scripts kept
+  upright) as spec 10.1 says. The built-in list the converter assumes
+  (spec 10) must change with the built-in fonts' coverage.
 - Fork-only features outside the wiki live in `src/fork/` and `lib/PerfLog/`,
   again with one-line hooks in upstream files (each marked `Fork:`):
   - Reader light controls (`src/fork/ReaderLightControls`): in a book, a
